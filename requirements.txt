@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+matplotlib
+networkx
+plotly
+qrcode
+pillow
+openpyxl>=3.0.0
