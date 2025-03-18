@@ -1,4 +1,4 @@
-# Game constants and configuration
+# config.py
 
 # Locations with their visual properties
 LOCATIONS = {
@@ -64,7 +64,7 @@ SCORING_WEIGHTS = {
     }
 }
 
-# CSS styles for the application
+# CSS styles for the application (consolidated version)
 STYLES = """
 <style>
     .main-title {
@@ -78,6 +78,7 @@ STYLES = """
         text-align: center;
         margin-bottom: 2rem;
         font-size: 1.2rem;
+        color: #6b7280;
     }
     .card {
         background-color: white;
@@ -86,31 +87,40 @@ STYLES = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
+    .status-bar {
+        background-color: #f0f9ff;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
     .location-button {
         background-color: #f9fafb;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
-        padding: 10px;
+        padding: 12px;
         width: 100%;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
+        font-size: 1.1rem;
         cursor: pointer;
         transition: all 0.2s;
-        text-align: center;
     }
     .location-button:hover {
         background-color: #f3f4f6;
         border-color: #d1d5db;
     }
-    .progress-bar {
-        height: 10px;
-        background-color: #e5e7eb;
-        border-radius: 5px;
-        margin: 10px 0;
-    }
-    .progress-fill {
-        height: 100%;
-        border-radius: 5px;
+    .primary-button {
         background-color: #1a56db;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 12px;
+        width: 100%;
+        margin-bottom: 10px;
+        font-size: 1.1rem;
+    }
+    .primary-button:hover {
+        background-color: #1e40af;
     }
     .package-button {
         background-color: #10B981;
@@ -160,5 +170,31 @@ STYLES = """
         padding: 10px;
         margin-top: 10px;
     }
+    .expander-header {
+        font-weight: bold;
+        color: #1a56db;
+    }
 </style>
 """
+
+# Centralized constraint checking function
+def check_constraints(route):
+    """
+    Check if a route follows the game's sequence constraints.
+    Returns True if constraints are met, False otherwise.
+    """
+    # Factory must come before Shop
+    if "Factory" in route and "Shop" in route:
+        f_idx = route.index("Factory")
+        s_idx = route.index("Shop")
+        if f_idx > s_idx:
+            return False
+            
+    # DHL Hub must come before Residence
+    if "DHL Hub" in route and "Residence" in route:
+        d_idx = route.index("DHL Hub")
+        r_idx = route.index("Residence")
+        if d_idx > r_idx:
+            return False
+            
+    return True

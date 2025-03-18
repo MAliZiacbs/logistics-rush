@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import time
 
-from config import LOCATIONS, SCORING_WEIGHTS
+from config import LOCATIONS, SCORING_WEIGHTS, check_constraints  # Updated import
 from routing import solve_tsp, get_distance
 from feature_road_closures import generate_road_closures, is_road_closed
 from feature_packages import generate_packages
@@ -65,12 +65,13 @@ def process_location_checkin(location):
             st.error(f"❌ Road from {current_location} to {location} is closed! Find another route.")
             return None
 
-    # Constraints check
-    if location == "Shop" and "Factory" not in st.session_state.current_route:
-        st.error("You must visit Factory before Shop!")
-        return None
-    if location == "Residence" and "DHL Hub" not in st.session_state.current_route:
-        st.error("You must visit DHL Hub before Residence!")
+    # Constraints check using centralized function
+    temp_route = st.session_state.current_route + [location]
+    if not check_constraints(temp_route):
+        if location == "Shop" and "Factory" not in st.session_state.current_route:
+            st.error("You must visit Factory before Shop!")
+        elif location == "Residence" and "DHL Hub" not in st.session_state.current_route:
+            st.error("You must visit DHL Hub before Residence!")
         return None
             
     # Package Delivery mode checks
@@ -176,20 +177,8 @@ def end_game():
     # Base score components
     time_factor = max(0, 100 - (game_time / 3))  # More lenient time factor for combined mode
     
-    # Calculate constraint adherence
-    constraints_followed = True
-    if "Factory" in st.session_state.current_route and "Shop" in st.session_state.current_route:
-        f_idx = st.session_state.current_route.index("Factory")
-        s_idx = st.session_state.current_route.index("Shop")
-        if f_idx > s_idx:
-            constraints_followed = False
-            
-    if "DHL Hub" in st.session_state.current_route and "Residence" in st.session_state.current_route:
-        d_idx = st.session_state.current_route.index("DHL Hub")
-        r_idx = st.session_state.current_route.index("Residence")
-        if d_idx > r_idx:
-            constraints_followed = False
-            
+    # Calculate constraint adherence using centralized function
+    constraints_followed = check_constraints(st.session_state.current_route)
     constraint_factor = 100 if constraints_followed else 0
     
     # Calculate delivery success rate
@@ -260,23 +249,21 @@ def get_completion_summary():
     total_packages = st.session_state.total_packages
     remaining_packages = total_packages - delivered_packages
     
-    # Constraint check
-    constraints_followed = True
+    # Constraint check using centralized function
+    constraints_followed = check_constraints(st.session_state.current_route)
     constraint_issues = []
     
-    if "Factory" in st.session_state.current_route and "Shop" in st.session_state.current_route:
-        f_idx = st.session_state.current_route.index("Factory")
-        s_idx = st.session_state.current_route.index("Shop")
-        if f_idx > s_idx:
-            constraints_followed = False
-            constraint_issues.append("Shop was visited before Factory")
-            
-    if "DHL Hub" in st.session_state.current_route and "Residence" in st.session_state.current_route:
-        d_idx = st.session_state.current_route.index("DHL Hub")
-        r_idx = st.session_state.current_route.index("Residence")
-        if d_idx > r_idx:
-            constraints_followed = False
-            constraint_issues.append("Residence was visited before DHL Hub")
+    if not constraints_followed:
+        if "Factory" in st.session_state.current_route and "Shop" in st.session_state.current_route:
+            f_idx = st.session_state.current_route.index("Factory")
+            s_idx = st.session_state.current_route.index("Shop")
+            if f_idx > s_idx:
+                constraint_issues.append("Shop was visited before Factory")
+        if "DHL Hub" in st.session_state.current_route and "Residence" in st.session_state.current_route:
+            d_idx = st.session_state.current_route.index("DHL Hub")
+            r_idx = st.session_state.current_route.index("Residence")
+            if d_idx > r_idx:
+                constraint_issues.append("Residence was visited before DHL Hub")
     
     return {
         "visited_locations": visited_locations,

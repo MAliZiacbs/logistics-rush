@@ -8,7 +8,7 @@ import os
 import json
 
 # Import our modules
-from config import LOCATIONS, GAME_MODES, STYLES
+from config import LOCATIONS, GAME_MODES, STYLES, check_constraints  # Updated import
 from game_engine import start_new_game, process_location_checkin, get_game_status
 from visualization import visualize_map, render_action_controls, render_game_info, render_game_results
 from data_management import save_player_data, export_player_data, reset_leaderboard, reset_all_data
@@ -16,78 +16,7 @@ from data_management import save_player_data, export_player_data, reset_leaderbo
 # Page configuration
 st.set_page_config(page_title="Logistics Rush", page_icon="🚚", layout="wide")
 
-# CSS styles
-STYLES = """
-<style>
-    .main-title {
-        font-size: 2.5rem;
-        font-weight: 800;
-        text-align: center;
-        margin-bottom: 1rem;
-        color: #1a56db;
-    }
-    .subtitle {
-        text-align: center;
-        margin-bottom: 2rem;
-        font-size: 1.2rem;
-        color: #6b7280;
-    }
-    .card {
-        background-color: white;
-        border-radius: 8px;
-        padding: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
-    }
-    .status-bar {
-        background-color: #f0f9ff;
-        padding: 10px;
-        border-radius: 6px;
-        margin-bottom: 20px;
-        text-align: center;
-    }
-    .location-button {
-        background-color: #f9fafb;
-        border: 1px solid #e5e7eb;
-        border-radius: 6px;
-        padding: 12px;
-        width: 100%;
-        margin-bottom: 10px;
-        font-size: 1.1rem;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    .location-button:hover {
-        background-color: #f3f4f6;
-        border-color: #d1d5db;
-    }
-    .primary-button {
-        background-color: #1a56db;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 12px;
-        width: 100%;
-        margin-bottom: 10px;
-        font-size: 1.1rem;
-    }
-    .primary-button:hover {
-        background-color: #1e40af;
-    }
-    .package-info, .constraints-info, .road-closure-alert {
-        background-color: #f3f4f6;
-        border-radius: 6px;
-        padding: 10px;
-        margin-bottom: 12px;
-    }
-    .expander-header {
-        font-weight: bold;
-        color: #1a56db;
-    }
-</style>
-"""
-
-# Apply CSS styles
+# Apply CSS styles from config
 st.markdown(STYLES, unsafe_allow_html=True)
 
 # Initialize session state

@@ -1,7 +1,7 @@
 import streamlit as st
 from itertools import permutations
 
-from config import DISTANCES, LOCATIONS
+from config import DISTANCES, LOCATIONS, check_constraints  # Updated import
 from feature_road_closures import is_road_closed
 
 def get_distance(loc1, loc2):
@@ -38,24 +38,6 @@ def is_valid_route(route):
             return False
     return True
 
-def check_constraints(route):
-    """Check if route follows the constraints for Complex Supply Chain mode"""
-    # Factory must come before Shop
-    if "Factory" in route and "Shop" in route:
-        f_idx = route.index("Factory")
-        s_idx = route.index("Shop")
-        if f_idx > s_idx:
-            return False
-            
-    # DHL Hub must come before Residence
-    if "DHL Hub" in route and "Residence" in route:
-        d_idx = route.index("DHL Hub")
-        r_idx = route.index("Residence")
-        if d_idx > r_idx:
-            return False
-            
-    return True
-
 def solve_tsp(start_location, locations):
     """Solve the Traveling Salesman Problem to find optimal route accounting for road closures and constraints"""
     # Apply constraints to ensure valid ordering
@@ -87,7 +69,7 @@ def solve_tsp(start_location, locations):
     for perm in permutations(remaining):
         route = [start_location] + list(perm)
         
-        # Check if route follows constraints
+        # Check if route follows constraints using centralized function
         if not check_constraints(route):
             continue
             
