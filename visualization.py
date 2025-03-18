@@ -6,8 +6,8 @@ import time
 from config import LOCATIONS, GAME_MODES
 from routing import get_distance 
 from feature_road_closures import is_road_closed
-from feature_packages import get_available_packages_at_location
-from game_engine import process_location_checkin, pickup_package, get_game_status
+from feature_packages import get_available_packages_at_location, get_package_hints
+from game_engine import process_location_checkin, pickup_package, get_game_status, get_completion_summary
 
 def visualize_map(player_route=None, optimal_route=None, constraints=None):
     """Create a clean, professional visual map with slight offset for overlapping routes."""
@@ -211,18 +211,28 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
             
             # If we're in package delivery mode, highlight package locations
             highlight_color = details["color"]
-            if st.session_state.game_mode == "Package Delivery" and st.session_state.game_active:
-                # Check if this location has packages for pickup
-                has_pickup = any(pkg["pickup"] == location and pkg["status"] == "waiting" 
-                                for pkg in st.session_state.packages)
-                # Check if this location is a delivery destination for carried packages
-                has_delivery = st.session_state.current_package and st.session_state.current_package["delivery"] == location
-                
-                # Use a different color if it's a pickup or delivery location
-                if has_pickup:
-                    highlight_color = "#10B981"  # Green for pickup
-                elif has_delivery:
-                    highlight_color = "#3B82F6"  # Blue for delivery
+            
+            # Check if this location has packages for pickup
+            has_pickup = any(pkg["pickup"] == location and pkg["status"] == "waiting" 
+                            for pkg in st.session_state.packages)
+            # Check if this location is a delivery destination for carried packages
+            has_delivery = st.session_state.current_package and st.session_state.current_package["delivery"] == location
+            
+            # Use a different color if it's a pickup or delivery location
+            if has_pickup:
+                highlight_color = "#10B981"  # Green for pickup
+            elif has_delivery:
+                highlight_color = "#3B82F6"  # Blue for delivery
+            
+            # Check for constraint highlighting
+            if constraints and location in constraints:
+                # Add a slight border effect for constrained locations
+                fig.add_shape(
+                    type="path",
+                    path=path,
+                    fillcolor="rgba(0,0,0,0)",
+                    line=dict(color="#6366F1", width=4)
+                )
             
             fig.add_shape(
                 type="path",
@@ -255,28 +265,27 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
                     showarrow=False,
                     font=dict(size=10, color="#333333"),
                     bgcolor="rgba(255,255,255,0.8)",
-                    bordercolor="#cccccc",
+                    bordercolor="#6366F1",
                     borderwidth=1,
                     borderpad=3
                 )
             
             # Package indicators
-            if st.session_state.game_mode == "Package Delivery" and st.session_state.game_active:
-                pending_packages = [p for p in st.session_state.packages if p["pickup"] == location and p["status"] == "waiting"]
-                if pending_packages:
-                    # Display package emoji above location
-                    for i, pkg in enumerate(pending_packages[:3]):  # Limit to 3 visible packages
-                        fig.add_annotation(
-                            x=details["position"][0],
-                            y=details["position"][1] - 50 - (i * 20),
-                            text=f"{pkg['icon']} #{pkg['id']}",
-                            showarrow=False,
-                            font=dict(size=16),
-                            bgcolor="rgba(255,255,255,0.8)",
-                            bordercolor="#10B981",
-                            borderwidth=2,
-                            borderpad=3
-                        )
+            pending_packages = [p for p in st.session_state.packages if p["pickup"] == location and p["status"] == "waiting"]
+            if pending_packages:
+                # Display package emoji above location
+                for i, pkg in enumerate(pending_packages[:3]):  # Limit to 3 visible packages
+                    fig.add_annotation(
+                        x=details["position"][0],
+                        y=details["position"][1] - 50 - (i * 20),
+                        text=f"{pkg['icon']} #{pkg['id']}",
+                        showarrow=False,
+                        font=dict(size=16),
+                        bgcolor="rgba(255,255,255,0.8)",
+                        bordercolor="#10B981",
+                        borderwidth=2,
+                        borderpad=3
+                    )
    
     # --- Player route with slight offset if there's also an optimal route ---
     offset_x = 0
@@ -409,40 +418,79 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
 def render_game_controls():
     """Render the game controls UI for active games"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown(f"### Current Mode: **{st.session_state.game_mode}**")
+    st.markdown(f"### Logistics Challenge")
     
-    # Show road closure warning if applicable
+    # Show all game elements at once in the integrated mode
+    
+    # Road closure warning
     if st.session_state.closed_roads:
         st.markdown('<div class="road-closure-alert">⛔️ ALERT: Road Closures In Effect!</div>', unsafe_allow_html=True)
         closures_text = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in st.session_state.closed_roads])
         st.markdown(f"**Closed roads:** {closures_text}")
     
-    # Show package info if applicable
-    if st.session_state.game_mode == "Package Delivery":
-        st.markdown('<div class="package-info">', unsafe_allow_html=True)
-        st.markdown(f"**📊 Package Status:** {len(st.session_state.delivered_packages)}/{st.session_state.total_packages} Delivered")
-        
-        if st.session_state.current_package:
-            pkg = st.session_state.current_package
-            st.markdown(f"**🚚 Carrying:** {pkg['icon']} Package #{pkg['id']} to {pkg['delivery']}")
-        else:
-            st.markdown("**🚚 Carrying:** No package")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Package delivery info
+    st.markdown('<div class="package-info">', unsafe_allow_html=True)
+    st.markdown(f"**📊 Package Status:** {len(st.session_state.delivered_packages)}/{st.session_state.total_packages} Delivered")
     
-    st.markdown("### How to Play")
-    st.markdown(GAME_MODES[st.session_state.game_mode]["instructions"])
+    if st.session_state.current_package:
+        pkg = st.session_state.current_package
+        st.markdown(f"**🚚 Carrying:** {pkg['icon']} Package #{pkg['id']} to {pkg['delivery']}")
+    else:
+        st.markdown("**🚚 Carrying:** No package")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Sequence constraints info
+    st.markdown('<div class="constraints-info">', unsafe_allow_html=True)
+    st.markdown("**🔄 Sequence Constraints:**")
+    st.markdown("• Factory must be visited before Shop")
+    st.markdown("• DHL Hub must be visited before Residence")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Game status and objectives
+    completion = get_completion_summary()
+    if completion:
+        # Progress bars for each objective
+        st.markdown("### Current Status")
+        game_status = get_game_status()
+        if game_status:
+            st.metric("Time", f"{game_status['time']:.1f} seconds")
+            
+            # Location visits progress
+            loc_visited = len(set([loc for loc in st.session_state.current_route if loc != "Central Hub"]))
+            total_loc = len([loc for loc in LOCATIONS.keys() if loc != "Central Hub"])
+            loc_progress = min(100, int((loc_visited / total_loc) * 100))
+            
+            st.markdown(f"Location Visits: {loc_visited}/{total_loc} ({loc_progress}%)")
+            st.markdown(
+                f"""<div class="progress-bar"><div class="progress-fill" style="width:{loc_progress}%"></div></div>""",
+                unsafe_allow_html=True
+            )
+            
+            # Package delivery progress
+            pkg_progress = min(100, int((len(st.session_state.delivered_packages) / 
+                                      max(1, st.session_state.total_packages)) * 100))
+            
+            st.markdown(f"Package Deliveries: {len(st.session_state.delivered_packages)}/{st.session_state.total_packages} ({pkg_progress}%)")
+            st.markdown(
+                f"""<div class="progress-bar"><div class="progress-fill" style="width:{pkg_progress}%"></div></div>""",
+                unsafe_allow_html=True
+            )
+            
+            # Constraints status
+            constraint_status = "✅ Met" if completion["constraints_followed"] else "❌ Not Met"
+            st.markdown(f"Constraints: {constraint_status}")
+            
+            if not completion["constraints_followed"]:
+                for issue in completion["constraint_issues"]:
+                    st.warning(issue)
 
-    # Game status (time, progress)
-    st.markdown("### Current Status")
-    game_status = get_game_status()
-    if game_status:
-        st.metric("Time", f"{game_status['time']:.1f} seconds")
-        st.markdown(game_status["progress_text"])
-        st.markdown(
-            f"""<div class="progress-bar"><div class="progress-fill" style="width:{game_status['progress']}%"></div></div>""",
-            unsafe_allow_html=True
-        )
+    # Game hints
+    hints = get_package_hints()
+    if hints:
+        with st.expander("Need a hint?"):
+            for hint in hints:
+                st.markdown(f"• {hint}")
 
     # Location check-in buttons
     st.markdown("### Check-in at Location")
@@ -466,13 +514,13 @@ def render_game_controls():
             if results:
                 st.rerun()
     
-    # Central Hub button
+    # Central Hub button - highlight as a detour option
     st.button(f"{LOCATIONS['Central Hub']['emoji']} Central Hub", key="central_hub_btn", use_container_width=True,
               help="Use the Central Hub to bypass road closures", 
               on_click=lambda: process_location_checkin("Central Hub"))
     
-    # Package pickup button (only shown in Package Delivery mode)
-    if st.session_state.game_mode == "Package Delivery" and st.session_state.current_route:
+    # Package pickup button (only shown when at a location with packages)
+    if st.session_state.current_route:
         current_location = st.session_state.current_route[-1]
         available_pickups = get_available_packages_at_location(current_location)
         
@@ -494,6 +542,7 @@ def render_game_controls():
                 pickup_package(selected_package)
                 st.rerun()
 
+    # Show current route
     if st.session_state.current_route:
         st.markdown("### Your Route")
         route_text = " → ".join(st.session_state.current_route)
@@ -503,7 +552,7 @@ def render_game_controls():
 def render_game_results():
     """Render the game results UI"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Game Results")
+    st.subheader("Challenge Complete!")
     results = st.session_state.game_results
 
     # Score
@@ -523,20 +572,38 @@ def render_game_results():
         st.metric("Efficiency", f"{results['efficiency']}%")
         st.metric("Optimal Distance", f"{results['optimal_distance']:.1f}")
 
-    # Game-specific results
-    if st.session_state.game_mode == "Package Delivery":
-        st.markdown("### Package Delivery Summary")
-        if st.session_state.delivered_packages:
-            st.markdown(f"**Packages Delivered:** {len(st.session_state.delivered_packages)}/{st.session_state.total_packages}")
-            for i, pkg in enumerate(st.session_state.delivered_packages):
-                st.markdown(f"✅ {pkg['icon']} Package #{pkg['id']}: {pkg['pickup']} → {pkg['delivery']}")
-        else:
-            st.markdown("**No packages delivered**")
+    # Detailed score breakdown
+    st.markdown('<div class="score-breakdown">', unsafe_allow_html=True)
+    st.markdown("### Score Breakdown")
+    components = results["score_components"]
+    
+    col_score1, col_score2 = st.columns(2)
+    with col_score1:
+        st.metric("Efficiency Score", f"{components['efficiency']:.1f}")
+        st.metric("Delivery Score", f"{components['delivery']:.1f}")
+    with col_score2:
+        st.metric("Constraint Score", f"{components['constraints']:.1f}")
+        st.metric("Time Score", f"{components['time']:.1f}")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Challenge results
+    st.markdown("### Challenge Results")
+    
+    # Package delivery summary
+    if st.session_state.delivered_packages:
+        st.markdown(f"**Packages Delivered:** {len(st.session_state.delivered_packages)}/{st.session_state.total_packages}")
+        for i, pkg in enumerate(st.session_state.delivered_packages):
+            st.markdown(f"✅ {pkg['icon']} Package #{pkg['id']}: {pkg['pickup']} → {pkg['delivery']}")
+    else:
+        st.markdown("**No packages delivered**")
+    
+    # Constraint status
+    constraints_followed = results.get('constraints_followed', False)
+    st.markdown(f"**Sequence Constraints:** {'✅ Met' if constraints_followed else '❌ Not Met'}")
     
     # Road closure summary
     if st.session_state.closed_roads:
-        st.markdown("### Road Closure Summary")
-        st.markdown("You navigated around these road closures:")
+        st.markdown("**Road Closures Navigated:**")
         for road in st.session_state.closed_roads:
             st.markdown(f"⛔️ {road[0]} ↔️ {road[1]}")
 
@@ -555,7 +622,9 @@ def render_game_results():
         else:
             st.markdown("*No optimal route available due to road closures.*")
 
+    # Play again button
     if st.button("Play Again", use_container_width=True):
         st.session_state.game_results = None
         st.rerun()
+        
     st.markdown('</div>', unsafe_allow_html=True)

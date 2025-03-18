@@ -12,7 +12,7 @@ def save_player_data(result_data):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     # Add to leaderboard
-    st.session_state.leaderboard.append({
+    leaderboard_entry = {
         "name": player["name"],
         "company": player["company"],
         "mode": st.session_state.game_mode,
@@ -20,7 +20,15 @@ def save_player_data(result_data):
         "efficiency": result_data["efficiency"],
         "score": result_data["score"],
         "timestamp": timestamp
-    })
+    }
+    
+    # Add additional data for unified game mode
+    if "delivery" in result_data:
+        leaderboard_entry["delivery"] = result_data["delivery"]
+    if "constraints" in result_data:
+        leaderboard_entry["constraints"] = result_data["constraints"]
+    
+    st.session_state.leaderboard.append(leaderboard_entry)
     
     # Sort leaderboard by score (highest first)
     st.session_state.leaderboard.sort(key=lambda x: x["score"], reverse=True)
@@ -35,14 +43,22 @@ def save_player_data(result_data):
         }
     
     # Add the game data to player profile
-    st.session_state.players[player["email"]]["games"].append({
+    game_record = {
         "timestamp": timestamp,
         "mode": st.session_state.game_mode,
         "time": result_data["time"],
         "efficiency": result_data["efficiency"],
         "score": result_data["score"],
         "route": result_data["route"]
-    })
+    }
+    
+    # Add additional metrics for the combined game mode
+    if "delivery" in result_data:
+        game_record["delivery"] = result_data["delivery"]
+    if "constraints" in result_data:
+        game_record["constraints"] = result_data["constraints"]
+    
+    st.session_state.players[player["email"]]["games"].append(game_record)
     
     # Save to file
     try:
@@ -71,7 +87,7 @@ def load_player_data():
         st.session_state.leaderboard = []
         for email, player in st.session_state.players.items():
             for game in player.get("games", []):
-                st.session_state.leaderboard.append({
+                entry = {
                     "name": player["name"],
                     "company": player["company"],
                     "mode": game.get("mode", "Unknown"),
@@ -79,7 +95,16 @@ def load_player_data():
                     "efficiency": game.get("efficiency", 0),
                     "score": game.get("score", 0),
                     "timestamp": game.get("timestamp", "")
-                })
+                }
+                
+                # Add metrics for the combined game mode if available
+                if "delivery" in game:
+                    entry["delivery"] = game["delivery"]
+                if "constraints" in game:
+                    entry["constraints"] = game["constraints"]
+                    
+                st.session_state.leaderboard.append(entry)
+                
         # Sort by score
         st.session_state.leaderboard.sort(key=lambda x: x["score"], reverse=True)
 
@@ -91,7 +116,8 @@ def export_player_data():
     rows = []
     for email, player in st.session_state.players.items():
         for game in player.get("games", []):
-            rows.append({
+            # Create a base entry with standard fields
+            entry = {
                 "Name": player["name"],
                 "Email": player["email"],
                 "Company": player["company"],
@@ -101,7 +127,14 @@ def export_player_data():
                 "Score": game.get("score", 0),
                 "Timestamp": game.get("timestamp", ""),
                 "Route": " → ".join(game.get("route", []))
-            })
+            }
+            
+            # Add special metrics for the integrated game mode
+            if game.get("mode") == "Logistics Challenge":
+                entry["Delivery Success"] = game.get("delivery", 0)
+                entry["Constraints Met"] = "Yes" if game.get("constraints", 0) > 0 else "No"
+            
+            rows.append(entry)
     
     return rows
 
@@ -113,9 +146,9 @@ def get_player_statistics():
     stats = {
         "total_players": len(st.session_state.players),
         "total_games": sum(len(player.get("games", [])) for player in st.session_state.players.values()),
-        "mode_counts": {},
         "company_counts": {},
         "average_scores": {},
+        "average_time": 0,
         "best_players": {}
     }
     
@@ -128,13 +161,6 @@ def get_player_statistics():
             game_copy["company"] = player["company"]
             all_games.append(game_copy)
     
-    # Get mode counts
-    for game in all_games:
-        mode = game.get("mode", "Unknown")
-        if mode not in stats["mode_counts"]:
-            stats["mode_counts"][mode] = 0
-        stats["mode_counts"][mode] += 1
-        
     # Get company counts
     for player in st.session_state.players.values():
         company = player.get("company", "Unknown")
@@ -142,23 +168,20 @@ def get_player_statistics():
             stats["company_counts"][company] = 0
         stats["company_counts"][company] += 1
         
-    # Calculate average scores per mode
-    for mode in stats["mode_counts"].keys():
-        mode_games = [g for g in all_games if g.get("mode") == mode]
-        if mode_games:
-            stats["average_scores"][mode] = sum(g.get("score", 0) for g in mode_games) / len(mode_games)
+    # Calculate averages
+    if all_games:
+        stats["average_scores"]["overall"] = sum(g.get("score", 0) for g in all_games) / len(all_games)
+        stats["average_time"] = sum(g.get("time", 0) for g in all_games) / len(all_games)
         
-    # Find best players per mode
-    for mode in stats["mode_counts"].keys():
-        mode_games = [g for g in all_games if g.get("mode") == mode]
-        if mode_games:
-            best_game = max(mode_games, key=lambda g: g.get("score", 0))
-            stats["best_players"][mode] = {
-                "name": best_game["player_name"],
-                "company": best_game.get("company", ""),
-                "score": best_game.get("score", 0),
-                "time": best_game.get("time", 0)
-            }
+    # Find best players
+    if all_games:
+        best_player = max(all_games, key=lambda g: g.get("score", 0))
+        stats["best_players"]["overall"] = {
+            "name": best_player["player_name"],
+            "company": best_player.get("company", ""),
+            "score": best_player.get("score", 0),
+            "time": best_player.get("time", 0)
+        }
     
     return stats
 
