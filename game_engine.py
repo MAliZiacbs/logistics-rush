@@ -46,13 +46,12 @@ def start_new_game():
             if loc != start_location:
                 fallback_route.append({"location": loc, "action": "visit", "package_id": None})
         fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
-        full_path, _, optimal_distance = calculate_route_distance(fallback_route)
-        optimal_path = full_path if full_path else [start_location]
+        optimal_path, optimal_distance = calculate_route_distance(fallback_route)
         optimal_route = fallback_route
 
     st.session_state.current_route = [start_location]
     st.session_state.optimal_route = optimal_route
-    st.session_state.optimal_path = optimal_path
+    st.session_state.optimal_path = optimal_path if optimal_path else [start_location]
 
 def process_location_checkin(location):
     """Process a player checking in at a location"""
