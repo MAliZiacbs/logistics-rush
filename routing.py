@@ -1,7 +1,5 @@
-# File: logistics-rush/routing.py
 import streamlit as st
 from itertools import permutations
-import networkx as nx
 
 from config import DISTANCES, LOCATIONS, check_constraints
 from feature_road_closures import is_road_closed
@@ -17,150 +15,135 @@ def get_distance(loc1, loc2):
     else:
         return float('inf')
 
-def find_detour(from_loc, to_loc, graph):
-    """Find the shortest detour route using NetworkX when the direct path is closed"""
-    if not is_road_closed(from_loc, to_loc) and from_loc in graph and to_loc in graph and nx.has_path(graph, from_loc, to_loc):
+def find_detour(from_loc, to_loc, via_loc="Central Hub"):
+    """Find a detour route when direct path is closed"""
+    if not is_road_closed(from_loc, to_loc):
         return [from_loc, to_loc], get_distance(from_loc, to_loc)
-    try:
-        path = nx.shortest_path(graph, source=from_loc, target=to_loc)
-        distance = nx.shortest_path_length(graph, source=from_loc, target=to_loc, weight='weight')
-        return path, distance
-    except nx.NetworkXNoPath:
+    if is_road_closed(from_loc, via_loc) or is_road_closed(via_loc, to_loc):
         return None, float('inf')
-    except nx.NodeNotFound:
-        return None, float('inf')
+    detour_distance = get_distance(from_loc, via_loc) + get_distance(via_loc, to_loc)
+    detour_route = [from_loc, via_loc, to_loc]
+    return detour_route, detour_distance
 
-def calculate_segment_path(from_loc, to_loc, graph):
+def calculate_segment_path(from_loc, to_loc):
     """Calculate the path and distance between two locations, using detour if needed"""
     direct_distance = get_distance(from_loc, to_loc)
     if direct_distance != float('inf'):
         return [from_loc, to_loc], direct_distance
-    detour_route, detour_distance = find_detour(from_loc, to_loc, graph)
+    detour_route, detour_distance = find_detour(from_loc, to_loc)
     if detour_route:
         return detour_route, detour_distance
     return None, float('inf')
 
-def calculate_route_distance(route, graph):
+def calculate_route_distance(route):
     """Calculate the total distance of a route with detours"""
     if len(route) <= 1:
         return None, 0
     total_distance = 0
-    full_path =
+    full_path = []
     for i in range(len(route) - 1):
-        segment_path, segment_distance = calculate_segment_path(route[i]["location"], route[i+1]["location"], graph)
+        segment_path, segment_distance = calculate_segment_path(route[i]["location"], route[i+1]["location"])
         if segment_distance == float('inf'):
             return None, float('inf')
+        total_distance += segment_distance
         full_path.extend(segment_path if i == 0 else segment_path[1:])  # Avoid duplicating locations
     return full_path, total_distance
 
-def is_valid_route(route, graph):
+def is_valid_route(route):
     """Check if a route is valid (has a path between all consecutive locations)"""
     for i in range(len(route) - 1):
-        segment_path, _ = calculate_segment_path(route[i]["location"], route[i+1]["location"], graph)
+        segment_path, _ = calculate_segment_path(route[i]["location"], route[i+1]["location"])
         if segment_path is None:
             return False
     return True
 
 def solve_tsp(start_location, locations):
-    """Solve TSP with package pickups and deliveries using NetworkX and considering constraints"""
+    """Solve TSP with Nearest Neighbor heuristic, handling packages and detours"""
     packages = st.session_state.packages
-    ordered_locations = locations.copy()
+    unvisited = locations.copy()
+    current_location = start_location
+    action_route = [{"location": current_location, "action": "visit", "package_id": None}]
+    packages_to_handle = {p["id"]: {"pickup": p["pickup"], "delivery": p["delivery"]} for p in packages}
+    current_package = None
+    total_distance = 0
 
-    # Ensure constraint ordering
-    if "Factory" in ordered_locations and "Shop" in ordered_locations:
-        factory_idx = ordered_locations.index("Factory")
-        shop_idx = ordered_locations.index("Shop")
-        if factory_idx > shop_idx:
-            ordered_locations[factory_idx], ordered_locations[shop_idx] = ordered_locations[shop_idx], ordered_locations[factory_idx]
-    if "DHL Hub" in ordered_locations and "Residence" in ordered_locations:
-        dhl_idx = ordered_locations.index("DHL Hub")
-        res_idx = ordered_locations.index("Residence")
-        if dhl_idx > res_idx:
-            ordered_locations[dhl_idx], ordered_locations[res_idx] = ordered_locations[res_idx], ordered_locations[dhl_idx]
-
-    best_route = None
-    best_path = None
-    min_distance = float('inf')
-    remaining = [loc for loc in ordered_locations if loc != start_location]
-
-    # Create a graph for routing
-    graph = nx.Graph()
-    for (u, v), dist in DISTANCES.items():
-        if not is_road_closed(u, v):
-            graph.add_edge(u, v, weight=dist)
-
-    # Build action list: visit all locations and handle all packages
-    for perm in permutations(remaining):
-        base_route = [start_location] + list(perm)
-        action_route =
-        packages_to_handle = {p["id"]: {"pickup": p["pickup"], "delivery": p["delivery"]} for p in packages}
-        current_package = None
-
-        for loc in base_route:
-            pickups = [pid for pid, pkg in packages_to_handle.items() if pkg["pickup"] == loc and pid not in [a["package_id"] for a in action_route if a["action"] == "pickup"]]
-            if pickups and not current_package:
-                pid = pickups[0]
-                action_route.append({"location": loc, "action": "pickup", "package_id": pid})
-                current_package = pid
-            if current_package and packages_to_handle[current_package]["delivery"] == loc:
-                action_route.append({"location": loc, "action": "deliver", "package_id": current_package})
+    while unvisited or packages_to_handle:
+        next_loc = None
+        min_dist = float('inf')
+        # Prioritize package pickups if no package is held
+        if not current_package:
+            for loc in unvisited:
+                if any(pkg["pickup"] == loc and pkg["id"] in packages_to_handle for pkg in packages):
+                    _, dist = calculate_segment_path(current_location, loc)
+                    if dist < min_dist:
+                        min_dist = dist
+                        next_loc = loc
+            if next_loc:
+                pickups = [pid for pid, pkg in packages_to_handle.items() if pkg["pickup"] == next_loc]
+                if pickups:
+                    pid = pickups[0]
+                    action_route.append({"location": next_loc, "action": "pickup", "package_id": pid})
+                    current_package = pid
+                    unvisited.remove(next_loc)
+                    _, segment_dist = calculate_segment_path(current_location, next_loc)
+                    total_distance += segment_dist
+                    current_location = next_loc
+                    continue
+        # Prioritize package delivery if holding one
+        if current_package:
+            delivery_loc = packages_to_handle[current_package]["delivery"]
+            if delivery_loc in unvisited or delivery_loc == current_location:
+                _, dist = calculate_segment_path(current_location, delivery_loc)
+                if dist < min_dist:
+                    min_dist = dist
+                    next_loc = delivery_loc
+            if next_loc:
+                action_route.append({"location": next_loc, "action": "deliver", "package_id": current_package})
                 del packages_to_handle[current_package]
                 current_package = None
-            if not any(a["location"] == loc for a in action_route[-2:]):  # Avoid redundant visits
-                action_route.append({"location": loc, "action": "visit", "package_id": None})
-
-        # Return to start
-        path_to_start, return_distance = calculate_segment_path(action_route[-1]["location"], start_location, graph)
-        if path_to_start:
-            action_route.append({"location": start_location, "action": "visit", "package_id": None})
-
-        # Validate route
-        loc_only_route = [a["location"] for a in action_route]
-        if check_constraints(loc_only_route) and is_valid_route(action_route, graph) and not packages_to_handle:
-            full_path, distance = calculate_route_distance(action_route, graph)
-            if full_path and distance < min_distance:
-                min_distance = distance
-                best_route = action_route.copy()
-                best_path = full_path
-
-    # Fallback: If no route found, try a minimal path through Central Hub
-    if best_route is None:
-        st.warning(f"No optimal route found with current closures: {st.session_state.closed_roads}")
-        fallback_route = [
-            {"location": start_location, "action": "visit", "package_id": None},
-            {"location": "Central Hub", "action": "visit", "package_id": None},
-        ]
-        for loc in ordered_locations:
-            if loc != start_location:
-                fallback_route.append({"location": loc, "action": "visit", "package_id": None})
-        fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
-        full_path, distance = calculate_route_distance(fallback_route, graph)
-        if full_path and distance != float('inf'):
-            best_route = fallback_route
-            best_path = full_path
-            min_distance = distance
+                if next_loc in unvisited:
+                    unvisited.remove(next_loc)
+                _, segment_dist = calculate_segment_path(current_location, next_loc)
+                total_distance += segment_dist
+                current_location = next_loc
+                continue
+        # Choose nearest unvisited location
+        for loc in unvisited:
+            _, dist = calculate_segment_path(current_location, loc)
+            if dist < min_dist:
+                min_dist = dist
+                next_loc = loc
+        if next_loc:
+            action_route.append({"location": next_loc, "action": "visit", "package_id": None})
+            unvisited.remove(next_loc)
+            _, segment_dist = calculate_segment_path(current_location, next_loc)
+            total_distance += segment_dist
+            current_location = next_loc
         else:
-            return None, None, float('inf')
+            break
 
-    if best_route is None:
+    # Return to start
+    _, return_dist = calculate_segment_path(current_location, start_location)
+    if return_dist != float('inf'):
+        action_route.append({"location": start_location, "action": "visit", "package_id": None})
+        total_distance += return_dist
+
+    # Validate route
+    loc_only_route = [a["location"] for a in action_route]
+    if not check_constraints(loc_only_route) or not is_valid_route(action_route) or packages_to_handle:
         return None, None, float('inf')
-    return best_route, best_path, min_distance
+
+    full_path, _ = calculate_route_distance(action_route)
+    return action_route, full_path, total_distance
 
 def get_nearest_accessible_location(current_location):
     """Find the nearest location that can be reached from current location"""
     locations = [loc for loc in LOCATIONS.keys() if loc != current_location]
-    accessible =
-    graph = nx.Graph()
-    for (u, v), dist in DISTANCES.items():
-        if not is_road_closed(u, v):
-            graph.add_edge(u, v, weight=dist)
-    try:
-        for loc in locations:
-            if current_location in graph and loc in graph and nx.has_path(graph, current_location, loc):
-                distance = nx.shortest_path_length(graph, source=current_location, target=loc, weight='weight')
-                accessible.append((loc, distance))
-    except nx.NodeNotFound:
-        return None
+    accessible = []
+    for loc in locations:
+        _, distance = calculate_segment_path(current_location, loc)
+        if distance < float('inf'):
+            accessible.append((loc, distance))
     if not accessible:
         return None
     accessible.sort(key=lambda x: x[1])
@@ -168,18 +151,13 @@ def get_nearest_accessible_location(current_location):
 
 def suggest_next_location(current_location, visited_locations, packages):
     """Suggest the next best location to visit based on current state"""
-    graph = nx.Graph()
-    for (u, v), dist in DISTANCES.items():
-        if not is_road_closed(u, v):
-            graph.add_edge(u, v, weight=dist)
-
     if st.session_state.current_package:
         delivery_loc = st.session_state.current_package["delivery"]
-        path, _ = find_detour(current_location, delivery_loc, graph)
-        if path:
+        segment_path, _ = calculate_segment_path(current_location, delivery_loc)
+        if segment_path:
             return delivery_loc, "delivery"
-        path, _ = find_detour(current_location, "Central Hub", graph)
-        if path:
+        segment_path, _ = calculate_segment_path(current_location, "Central Hub")
+        if segment_path:
             return "Central Hub", "detour"
     available_pickups = [p for p in packages if p["pickup"] == current_location and p["status"] == "waiting"]
     if available_pickups and not st.session_state.current_package:
@@ -187,14 +165,11 @@ def suggest_next_location(current_location, visited_locations, packages):
     main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
     unvisited = [loc for loc in main_locations if loc not in visited_locations]
     if unvisited:
-        accessible_unvisited =
-        try:
-            for loc in unvisited:
-                if current_location in graph and loc in graph and nx.has_path(graph, current_location, loc):
-                    dist = nx.shortest_path_length(graph, source=current_location, target=loc, weight='weight')
-                    accessible_unvisited.append((loc, dist))
-        except nx.NodeNotFound:
-            pass
+        accessible_unvisited = []
+        for loc in unvisited:
+            _, dist = calculate_segment_path(current_location, loc)
+            if dist < float('inf'):
+                accessible_unvisited.append((loc, dist))
         if accessible_unvisited:
             accessible_unvisited.sort(key=lambda x: x[1])
             return accessible_unvisited[0][0], "unvisited"
