@@ -1,5 +1,7 @@
+# File: logistics-rush/routing.py
 import streamlit as st
 from itertools import permutations
+import networkx as nx
 
 from config import DISTANCES, LOCATIONS, check_constraints
 from feature_road_closures import is_road_closed
@@ -15,53 +17,55 @@ def get_distance(loc1, loc2):
     else:
         return float('inf')
 
-def find_detour(from_loc, to_loc, via_loc="Central Hub"):
-    """Find a detour route when direct path is closed"""
-    if not is_road_closed(from_loc, to_loc):
+def find_detour(from_loc, to_loc, graph):
+    """Find the shortest detour route using NetworkX when the direct path is closed"""
+    if not is_road_closed(from_loc, to_loc) and from_loc in graph and to_loc in graph and nx.has_path(graph, from_loc, to_loc):
         return [from_loc, to_loc], get_distance(from_loc, to_loc)
-    if is_road_closed(from_loc, via_loc) or is_road_closed(via_loc, to_loc):
+    try:
+        path = nx.shortest_path(graph, source=from_loc, target=to_loc)
+        distance = nx.shortest_path_length(graph, source=from_loc, target=to_loc, weight='weight')
+        return path, distance
+    except nx.NetworkXNoPath:
         return None, float('inf')
-    detour_distance = get_distance(from_loc, via_loc) + get_distance(via_loc, to_loc)
-    detour_route = [from_loc, via_loc, to_loc]
-    return detour_route, detour_distance
+    except nx.NodeNotFound:
+        return None, float('inf')
 
-def calculate_segment_path(from_loc, to_loc):
+def calculate_segment_path(from_loc, to_loc, graph):
     """Calculate the path and distance between two locations, using detour if needed"""
     direct_distance = get_distance(from_loc, to_loc)
     if direct_distance != float('inf'):
         return [from_loc, to_loc], direct_distance
-    detour_route, detour_distance = find_detour(from_loc, to_loc)
+    detour_route, detour_distance = find_detour(from_loc, to_loc, graph)
     if detour_route:
         return detour_route, detour_distance
     return None, float('inf')
 
-def calculate_route_distance(route):
+def calculate_route_distance(route, graph):
     """Calculate the total distance of a route with detours"""
     if len(route) <= 1:
         return None, 0
     total_distance = 0
-    full_path = []
+    full_path =
     for i in range(len(route) - 1):
-        segment_path, segment_distance = calculate_segment_path(route[i]["location"], route[i+1]["location"])
+        segment_path, segment_distance = calculate_segment_path(route[i]["location"], route[i+1]["location"], graph)
         if segment_distance == float('inf'):
             return None, float('inf')
-        total_distance += segment_distance
         full_path.extend(segment_path if i == 0 else segment_path[1:])  # Avoid duplicating locations
     return full_path, total_distance
 
-def is_valid_route(route):
+def is_valid_route(route, graph):
     """Check if a route is valid (has a path between all consecutive locations)"""
     for i in range(len(route) - 1):
-        segment_path, _ = calculate_segment_path(route[i]["location"], route[i+1]["location"])
+        segment_path, _ = calculate_segment_path(route[i]["location"], route[i+1]["location"], graph)
         if segment_path is None:
             return False
     return True
 
 def solve_tsp(start_location, locations):
-    """Solve TSP with package pickups and deliveries, using detours if needed"""
+    """Solve TSP with package pickups and deliveries using NetworkX and considering constraints"""
     packages = st.session_state.packages
     ordered_locations = locations.copy()
-    
+
     # Ensure constraint ordering
     if "Factory" in ordered_locations and "Shop" in ordered_locations:
         factory_idx = ordered_locations.index("Factory")
@@ -79,10 +83,16 @@ def solve_tsp(start_location, locations):
     min_distance = float('inf')
     remaining = [loc for loc in ordered_locations if loc != start_location]
 
+    # Create a graph for routing
+    graph = nx.Graph()
+    for (u, v), dist in DISTANCES.items():
+        if not is_road_closed(u, v):
+            graph.add_edge(u, v, weight=dist)
+
     # Build action list: visit all locations and handle all packages
     for perm in permutations(remaining):
         base_route = [start_location] + list(perm)
-        action_route = []
+        action_route =
         packages_to_handle = {p["id"]: {"pickup": p["pickup"], "delivery": p["delivery"]} for p in packages}
         current_package = None
 
@@ -100,14 +110,14 @@ def solve_tsp(start_location, locations):
                 action_route.append({"location": loc, "action": "visit", "package_id": None})
 
         # Return to start
-        _, return_distance = calculate_segment_path(action_route[-1]["location"], start_location)
-        if return_distance != float('inf'):
+        path_to_start, return_distance = calculate_segment_path(action_route[-1]["location"], start_location, graph)
+        if path_to_start:
             action_route.append({"location": start_location, "action": "visit", "package_id": None})
 
         # Validate route
         loc_only_route = [a["location"] for a in action_route]
-        if check_constraints(loc_only_route) and is_valid_route(action_route) and not packages_to_handle:
-            full_path, distance = calculate_route_distance(action_route)
+        if check_constraints(loc_only_route) and is_valid_route(action_route, graph) and not packages_to_handle:
+            full_path, distance = calculate_route_distance(action_route, graph)
             if full_path and distance < min_distance:
                 min_distance = distance
                 best_route = action_route.copy()
@@ -124,7 +134,7 @@ def solve_tsp(start_location, locations):
             if loc != start_location:
                 fallback_route.append({"location": loc, "action": "visit", "package_id": None})
         fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
-        full_path, distance = calculate_route_distance(fallback_route)
+        full_path, distance = calculate_route_distance(fallback_route, graph)
         if full_path and distance != float('inf'):
             best_route = fallback_route
             best_path = full_path
@@ -139,11 +149,18 @@ def solve_tsp(start_location, locations):
 def get_nearest_accessible_location(current_location):
     """Find the nearest location that can be reached from current location"""
     locations = [loc for loc in LOCATIONS.keys() if loc != current_location]
-    accessible = []
-    for loc in locations:
-        _, distance = calculate_segment_path(current_location, loc)
-        if distance < float('inf'):
-            accessible.append((loc, distance))
+    accessible =
+    graph = nx.Graph()
+    for (u, v), dist in DISTANCES.items():
+        if not is_road_closed(u, v):
+            graph.add_edge(u, v, weight=dist)
+    try:
+        for loc in locations:
+            if current_location in graph and loc in graph and nx.has_path(graph, current_location, loc):
+                distance = nx.shortest_path_length(graph, source=current_location, target=loc, weight='weight')
+                accessible.append((loc, distance))
+    except nx.NodeNotFound:
+        return None
     if not accessible:
         return None
     accessible.sort(key=lambda x: x[1])
@@ -151,13 +168,18 @@ def get_nearest_accessible_location(current_location):
 
 def suggest_next_location(current_location, visited_locations, packages):
     """Suggest the next best location to visit based on current state"""
+    graph = nx.Graph()
+    for (u, v), dist in DISTANCES.items():
+        if not is_road_closed(u, v):
+            graph.add_edge(u, v, weight=dist)
+
     if st.session_state.current_package:
         delivery_loc = st.session_state.current_package["delivery"]
-        segment_path, _ = calculate_segment_path(current_location, delivery_loc)
-        if segment_path:
+        path, _ = find_detour(current_location, delivery_loc, graph)
+        if path:
             return delivery_loc, "delivery"
-        segment_path, _ = calculate_segment_path(current_location, "Central Hub")
-        if segment_path:
+        path, _ = find_detour(current_location, "Central Hub", graph)
+        if path:
             return "Central Hub", "detour"
     available_pickups = [p for p in packages if p["pickup"] == current_location and p["status"] == "waiting"]
     if available_pickups and not st.session_state.current_package:
@@ -165,11 +187,14 @@ def suggest_next_location(current_location, visited_locations, packages):
     main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
     unvisited = [loc for loc in main_locations if loc not in visited_locations]
     if unvisited:
-        accessible_unvisited = []
-        for loc in unvisited:
-            _, dist = calculate_segment_path(current_location, loc)
-            if dist < float('inf'):
-                accessible_unvisited.append((loc, dist))
+        accessible_unvisited =
+        try:
+            for loc in unvisited:
+                if current_location in graph and loc in graph and nx.has_path(graph, current_location, loc):
+                    dist = nx.shortest_path_length(graph, source=current_location, target=loc, weight='weight')
+                    accessible_unvisited.append((loc, dist))
+        except nx.NodeNotFound:
+            pass
         if accessible_unvisited:
             accessible_unvisited.sort(key=lambda x: x[1])
             return accessible_unvisited[0][0], "unvisited"
