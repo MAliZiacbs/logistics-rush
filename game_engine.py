@@ -3,7 +3,7 @@ import numpy as np
 import time
 
 from config import LOCATIONS, SCORING_WEIGHTS, check_constraints
-from routing import solve_tsp, get_distance
+from routing import solve_tsp, get_distance, calculate_route_distance
 from feature_road_closures import generate_road_closures, is_road_closed
 from feature_packages import generate_packages
 from data_management import save_player_data
@@ -220,96 +220,4 @@ def get_completion_summary():
         "remaining_packages": remaining_packages,
         "constraints_followed": constraints_followed,
         "constraint_issues": constraint_issues
-    }import streamlit as st
-import numpy as np
-import time
-
-from config import LOCATIONS, SCORING_WEIGHTS, check_constraints
-from routing import solve_tsp, get_distance, calculate_route_distance  # Added calculate_route_distance
-from feature_road_closures import generate_road_closures, is_road_closed
-from feature_packages import generate_packages
-from data_management import save_player_data
-
-def start_new_game():
-    """Start a new game with all features combined"""
-    st.session_state.game_active = True
-    st.session_state.start_time = time.time()
-    
-    st.session_state.current_package = None
-    st.session_state.delivered_packages = []
-    
-    locations_to_visit = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
-    start_location = "Factory"
-
-    st.session_state.constraints = {
-        "Factory": "Must visit before Shop",
-        "Shop": "Must visit after Factory",
-        "DHL Hub": "Must visit before Residence",
-        "Residence": "Must visit after DHL Hub"
     }
-    
-    st.session_state.closed_roads = generate_road_closures(num_closures=2)
-    st.session_state.packages = generate_packages(num_packages=3)
-    st.session_state.total_packages = len(st.session_state.packages)
-
-    optimal_route, optimal_distance = solve_tsp(start_location, locations_to_visit)
-    if optimal_route is None:
-        st.warning("Road closures make direct routes impossible! Try routing through Central Hub.")
-        expanded_locations = locations_to_visit + ["Central Hub"]
-        optimal_route, optimal_distance = solve_tsp(start_location, expanded_locations)
-
-    st.session_state.current_route = [start_location]  # Player route remains location-only for simplicity
-    st.session_state.optimal_route = optimal_route if optimal_route else [{"location": start_location, "action": "visit", "package_id": None}]
-
-def process_location_checkin(location):
-    """Process a player checking in at a location"""
-    if not st.session_state.game_active:
-        st.warning("Please start a new game first!")
-        return None
-        
-    if len(st.session_state.current_route) > 0:
-        current_location = st.session_state.current_route[-1]
-        if is_road_closed(current_location, location):
-            st.error(f"❌ Road from {current_location} to {location} is closed! Find another route.")
-            return None
-
-    temp_route = st.session_state.current_route + [location]
-    if not check_constraints(temp_route):
-        if location == "Shop" and "Factory" not in st.session_state.current_route:
-            st.error("You must visit Factory before Shop!")
-        elif location == "Residence" and "DHL Hub" not in st.session_state.current_route:
-            st.error("You must visit DHL Hub before Residence!")
-        return None
-            
-    if st.session_state.current_package and st.session_state.current_package["delivery"] == location:
-        st.session_state.current_package["status"] = "delivered"
-        st.session_state.delivered_packages.append(st.session_state.current_package)
-        st.session_state.current_package = None
-        st.success(f"📦 Package delivered successfully to {location}!")
-        
-    available_pickups = [p for p in st.session_state.packages 
-                         if p["pickup"] == location and p["status"] == "waiting"]
-    if available_pickups and not st.session_state.current_package:
-        st.info(f"📦 There are {len(available_pickups)} packages available for pickup at {location}!")
-
-    st.session_state.current_route.append(location)
-    
-    main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
-    all_locations_visited = all(loc in st.session_state.current_route for loc in main_locations)
-    all_packages_delivered = len(st.session_state.delivered_packages) == st.session_state.total_packages
-    
-    if all_locations_visited and all_packages_delivered:
-        if st.session_state.current_route[0] != st.session_state.current_route[-1]:
-            if not is_road_closed(st.session_state.current_route[-1], st.session_state.current_route[0]):
-                st.session_state.current_route.append(st.session_state.current_route[0])
-        return end_game()
-            
-    return None
-
-def pickup_package(package):
-    """Pick up a package at the current location"""
-    if not st.session_state.game_active or not package:
-        return
-    package["status"] = "picked_up"
-    st.session_state.current_package = package
-    st.success(f"Package #{package['i
