@@ -13,14 +13,12 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
     """Create a clean, professional visual map with slight offset for overlapping routes."""
     fig = go.Figure()
    
-    # Background and grid (unchanged)
     fig.add_shape(type="rect", x0=0, y0=0, x1=800, y1=400, fillcolor="rgba(220, 240, 230, 0.6)", line=dict(color="#2e8b57", width=3), layer="below")
     for i in range(0, 801, 100):
         fig.add_shape(type="line", x0=i, y0=0, x1=i, y1=400, line=dict(color="rgba(0, 80, 40, 0.1)", width=1), layer="below")
     for i in range(0, 401, 100):
         fig.add_shape(type="line", x0=0, y0=i, x1=800, y1=i, line=dict(color="rgba(0, 80, 40, 0.1)", width=1), layer="below")
    
-    # Roads (unchanged)
     for location, details in LOCATIONS.items():
         if location != "Central Hub":
             road_closed = is_road_closed(location, "Central Hub")
@@ -41,26 +39,24 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
         if not road_closed:
             fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
    
-    # Optimal route with actions
+    # Optimal route (using optimal_path)
     if optimal_route and len(optimal_route) > 1:
-        route_x = [LOCATIONS[action["location"]]["position"][0] for action in optimal_route]
-        route_y = [LOCATIONS[action["location"]]["position"][1] for action in optimal_route]
+        route_x = [LOCATIONS[loc]["position"][0] for loc in optimal_route]
+        route_y = [LOCATIONS[loc]["position"][1] for loc in optimal_route]
         fig.add_trace(go.Scatter(x=route_x, y=route_y, mode='lines', line=dict(color='#0466c8', width=5), opacity=0.3, showlegend=False))
         fig.add_trace(go.Scatter(x=route_x, y=route_y, mode='lines+markers', line=dict(color='#0466c8', width=3, dash='dash'), marker=dict(size=7, color='#0466c8', symbol='circle', line=dict(color='#ffffff', width=1)), name='Optimal Route'))
-        for i, action in enumerate(optimal_route):
+        for i, action in enumerate(st.session_state.optimal_route):  # Use st.session_state.optimal_route for actions
             label = chr(65 + i)
             if action["action"] == "pickup":
                 label += f" P{action['package_id']}"
             elif action["action"] == "deliver":
                 label += f" D{action['package_id']}"
-            fig.add_annotation(x=LOCATIONS[action["location"]]["position"][0] - 30, y=LOCATIONS[action["location"]]["position"][1] - 30, text=label, showarrow=False, font=dict(size=12, color="#ffffff"), bgcolor="#0466c8", borderpad=3, opacity=0.9)
+            fig.add_annotation(x=route_x[i] - 30, y=route_y[i] - 30, text=label, showarrow=False, font=dict(size=12, color="#ffffff"), bgcolor="#0466c8", borderpad=3, opacity=0.9)
    
-    # Central Hub (unchanged)
     central_hub = LOCATIONS["Central Hub"]
     fig.add_shape(type="rect", x0=central_hub["position"][0] - 50, y0=central_hub["position"][1] - 50, x1=central_hub["position"][0] + 50, y1=central_hub["position"][1] + 50, fillcolor="#333333", line=dict(color="#ffffff", width=2))
     fig.add_annotation(x=central_hub["position"][0], y=central_hub["position"][1], text="CENTRAL<br>HUB", showarrow=False, font=dict(size=14, color="#ffffff", family="Arial"))
    
-    # Locations as hexagons (unchanged)
     for location, details in LOCATIONS.items():
         if location != "Central Hub":
             r = 40
@@ -85,7 +81,6 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
             for i, pkg in enumerate(pending_packages[:3]):
                 fig.add_annotation(x=details["position"][0], y=details["position"][1] - 50 - (i * 20), text=f"{pkg['icon']} #{pkg['id']}", showarrow=False, font=dict(size=16), bgcolor="rgba(255,255,255,0.8)", bordercolor="#10B981", borderwidth=2, borderpad=3)
    
-    # Player route (unchanged)
     offset_x, offset_y = (5, -5) if player_route and optimal_route else (0, 0)
     if player_route and len(player_route) > 1:
         route_x = [LOCATIONS[loc]["position"][0] + offset_x for loc in player_route]
@@ -95,7 +90,6 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
         for i, loc in enumerate(player_route):
             fig.add_annotation(x=LOCATIONS[loc]["position"][0] + offset_x + 30, y=LOCATIONS[loc]["position"][1] + offset_y + 30, text=str(i+1), showarrow=False, font=dict(size=12, color="#ffffff"), bgcolor="#e63946", borderpad=3, opacity=0.9)
    
-    # Route indicators (updated)
     if player_route and optimal_route:
         fig.add_annotation(x=650, y=40, text="Your Route: 1→2→3→...", showarrow=False, font=dict(size=10, color="#e63946"), bgcolor="rgba(255,255,255,0.8)", borderpad=3)
         fig.add_annotation(x=650, y=70, text="Optimal: A P1→B D1→...", showarrow=False, font=dict(size=10, color="#0466c8"), bgcolor="rgba(255,255,255,0.8)", borderpad=3)
@@ -247,7 +241,17 @@ def render_game_results():
     with cc2:
         st.markdown("**Optimal Route:**")
         if st.session_state.completed_routes["optimal"] and len(st.session_state.completed_routes["optimal"]) > 1:
-            route_text = " → ".join([f"{a['location']} ({'P' if a['action'] == 'pickup' else 'D' if a['action'] == 'deliver' else 'V'}{a['package_id'] if a['package_id'] else ''})" for a in st.session_state.completed_routes["optimal"]])
+            optimal_actions = st.session_state.optimal_route  # Actions for display
+            route_text = " → ".join(st.session_state.completed_routes["optimal"])
+            action_labels = []
+            for i, loc in enumerate(st.session_state.completed_routes["optimal"]):
+                action = next((a for a in optimal_actions if a["location"] == loc), None)
+                if action and action["action"] in ["pickup", "deliver"]:
+                    label = f"{loc} ({'P' if action['action'] == 'pickup' else 'D'}{action['package_id']})"
+                else:
+                    label = loc
+                action_labels.append(label)
+            route_text = " → ".join(action_labels)
             st.code(route_text)
         else:
             st.markdown("*No optimal route available due to road closures.*")

@@ -30,14 +30,15 @@ def start_new_game():
     st.session_state.packages = generate_packages(num_packages=3)
     st.session_state.total_packages = len(st.session_state.packages)
 
-    optimal_route, optimal_distance = solve_tsp(start_location, locations_to_visit)
+    optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
     if optimal_route is None:
         st.warning("Road closures make direct routes impossible! Try routing through Central Hub.")
         expanded_locations = locations_to_visit + ["Central Hub"]
-        optimal_route, optimal_distance = solve_tsp(start_location, expanded_locations)
+        optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, expanded_locations)
 
-    st.session_state.current_route = [start_location]  # Player route remains location-only for simplicity
+    st.session_state.current_route = [start_location]
     st.session_state.optimal_route = optimal_route if optimal_route else [{"location": start_location, "action": "visit", "package_id": None}]
+    st.session_state.optimal_path = optimal_path if optimal_path else [start_location]
 
 def process_location_checkin(location):
     """Process a player checking in at a location"""
@@ -118,7 +119,9 @@ def end_game():
 
     game_time = time.time() - st.session_state.start_time
 
-    optimal_distance = calculate_route_distance(st.session_state.optimal_route)
+    _, optimal_distance = calculate_route_distance(st.session_state.optimal_route)
+    if optimal_distance == float('inf'):
+        optimal_distance = 0  # Fallback if no valid optimal route
     player_distance = 0
     for i in range(len(st.session_state.current_route) - 1):
         segment_distance = get_distance(st.session_state.current_route[i], st.session_state.current_route[i+1])
@@ -145,9 +148,9 @@ def end_game():
     optimal_time = optimal_distance * 2  # Arbitrary: 2 seconds per unit distance
     optimal_time_factor = max(0, 100 - (optimal_time / 3))
     optimal_score_components = {
-        "efficiency": 100 * weights["efficiency"],  # Optimal route is 100% efficient
-        "delivery": 100 * weights["delivery"],  # All packages delivered
-        "constraints": 100 * weights["constraints"],  # Constraints followed
+        "efficiency": 100 * weights["efficiency"],
+        "delivery": 100 * weights["delivery"],
+        "constraints": 100 * weights["constraints"],
         "time": optimal_time_factor * weights["time"]
     }
     optimal_score = int(sum(optimal_score_components.values()))
@@ -157,7 +160,7 @@ def end_game():
 
     st.session_state.completed_routes = {
         "player": st.session_state.current_route.copy(),
-        "optimal": st.session_state.optimal_route.copy()
+        "optimal": st.session_state.optimal_path.copy() if st.session_state.optimal_path else []
     }
     
     if st.session_state.current_player:

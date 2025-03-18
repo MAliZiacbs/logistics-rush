@@ -15,27 +15,50 @@ def get_distance(loc1, loc2):
     else:
         return float('inf')
 
+def find_detour(from_loc, to_loc, via_loc="Central Hub"):
+    """Find a detour route when direct path is closed"""
+    if not is_road_closed(from_loc, to_loc):
+        return [from_loc, to_loc], get_distance(from_loc, to_loc)
+    if is_road_closed(from_loc, via_loc) or is_road_closed(via_loc, to_loc):
+        return None, float('inf')
+    detour_distance = get_distance(from_loc, via_loc) + get_distance(via_loc, to_loc)
+    detour_route = [from_loc, via_loc, to_loc]
+    return detour_route, detour_distance
+
+def calculate_segment_path(from_loc, to_loc):
+    """Calculate the path and distance between two locations, using detour if needed"""
+    direct_distance = get_distance(from_loc, to_loc)
+    if direct_distance != float('inf'):
+        return [from_loc, to_loc], direct_distance
+    detour_route, detour_distance = find_detour(from_loc, to_loc)
+    if detour_route:
+        return detour_route, detour_distance
+    return None, float('inf')
+
 def calculate_route_distance(route):
-    """Calculate the total distance of a route"""
+    """Calculate the total distance of a route with detours"""
     if len(route) <= 1:
         return 0
     total_distance = 0
+    full_path = []
     for i in range(len(route) - 1):
-        segment_distance = get_distance(route[i]["location"], route[i+1]["location"])
+        segment_path, segment_distance = calculate_segment_path(route[i]["location"], route[i+1]["location"])
         if segment_distance == float('inf'):
-            return float('inf')
+            return None, float('inf')
         total_distance += segment_distance
-    return total_distance
+        full_path.extend(segment_path if i == 0 else segment_path[1:])  # Avoid duplicating locations
+    return full_path, total_distance
 
 def is_valid_route(route):
-    """Check if a route is valid (no closed roads)"""
+    """Check if a route is valid (has a path between all consecutive locations)"""
     for i in range(len(route) - 1):
-        if is_road_closed(route[i]["location"], route[i+1]["location"]):
+        segment_path, _ = calculate_segment_path(route[i]["location"], route[i+1]["location"])
+        if segment_path is None:
             return False
     return True
 
 def solve_tsp(start_location, locations):
-    """Solve TSP with package pickups and deliveries"""
+    """Solve TSP with package pickups and deliveries, using detours if needed"""
     packages = st.session_state.packages
     ordered_locations = locations.copy()
     
@@ -52,6 +75,7 @@ def solve_tsp(start_location, locations):
             ordered_locations[dhl_idx], ordered_locations[res_idx] = ordered_locations[res_idx], ordered_locations[dhl_idx]
 
     best_route = None
+    best_path = None
     min_distance = float('inf')
     remaining = [loc for loc in ordered_locations if loc != start_location]
 
@@ -63,84 +87,42 @@ def solve_tsp(start_location, locations):
         current_package = None
 
         for loc in base_route:
-            # Check for pickups
             pickups = [pid for pid, pkg in packages_to_handle.items() if pkg["pickup"] == loc and pid not in [a["package_id"] for a in action_route if a["action"] == "pickup"]]
             if pickups and not current_package:
                 pid = pickups[0]
                 action_route.append({"location": loc, "action": "pickup", "package_id": pid})
                 current_package = pid
-            # Check for deliveries
             if current_package and packages_to_handle[current_package]["delivery"] == loc:
                 action_route.append({"location": loc, "action": "deliver", "package_id": current_package})
                 del packages_to_handle[current_package]
                 current_package = None
-            # Add visit if no action
             if not any(a["location"] == loc for a in action_route[-2:]):  # Avoid redundant visits
                 action_route.append({"location": loc, "action": "visit", "package_id": None})
 
         # Return to start
-        if not is_road_closed(action_route[-1]["location"], start_location):
+        _, return_distance = calculate_segment_path(action_route[-1]["location"], start_location)
+        if return_distance != float('inf'):
             action_route.append({"location": start_location, "action": "visit", "package_id": None})
 
         # Validate route
         loc_only_route = [a["location"] for a in action_route]
         if check_constraints(loc_only_route) and is_valid_route(action_route) and not packages_to_handle:
-            distance = calculate_route_distance(action_route)
-            if distance < min_distance:
+            full_path, distance = calculate_route_distance(action_route)
+            if full_path and distance < min_distance:
                 min_distance = distance
                 best_route = action_route.copy()
+                best_path = full_path
 
     if best_route is None:
         return None, float('inf')
-    return best_route, min_distance
-
-# Other functions (get_distance, find_detour, etc.) remain unchanged
-def get_distance(loc1, loc2):
-    """Get the distance between two locations, accounting for road closures"""
-    if is_road_closed(loc1, loc2):
-        return float('inf')
-    if (loc1, loc2) in DISTANCES:
-        return DISTANCES[(loc1, loc2)]
-    elif (loc2, loc1) in DISTANCES:
-        return DISTANCES[(loc2, loc1)]
-    else:
-        return float('inf')
-
-def calculate_route_distance(route):
-    """Calculate the total distance of a route"""
-    if len(route) <= 1:
-        return 0
-    total_distance = 0
-    for i in range(len(route) - 1):
-        segment_distance = get_distance(route[i]["location"], route[i+1]["location"])
-        if segment_distance == float('inf'):
-            return float('inf')
-        total_distance += segment_distance
-    return total_distance
-
-def is_valid_route(route):
-    """Check if a route is valid (no closed roads)"""
-    for i in range(len(route) - 1):
-        if is_road_closed(route[i]["location"], route[i+1]["location"]):
-            return False
-    return True
-
-def find_detour(from_loc, to_loc, via_loc="Central Hub"):
-    """Find a detour route when direct path is closed"""
-    if not is_road_closed(from_loc, to_loc):
-        return [from_loc, to_loc], get_distance(from_loc, to_loc)
-    if is_road_closed(from_loc, via_loc) or is_road_closed(via_loc, to_loc):
-        return None, float('inf')
-    detour_distance = get_distance(from_loc, via_loc) + get_distance(via_loc, to_loc)
-    detour_route = [from_loc, via_loc, to_loc]
-    return detour_route, detour_distance
+    return best_route, best_path, min_distance
 
 def get_nearest_accessible_location(current_location):
     """Find the nearest location that can be reached from current location"""
     locations = [loc for loc in LOCATIONS.keys() if loc != current_location]
     accessible = []
     for loc in locations:
-        distance = get_distance(current_location, loc)
+        _, distance = calculate_segment_path(current_location, loc)
         if distance < float('inf'):
             accessible.append((loc, distance))
     if not accessible:
@@ -152,9 +134,11 @@ def suggest_next_location(current_location, visited_locations, packages):
     """Suggest the next best location to visit based on current state"""
     if st.session_state.current_package:
         delivery_loc = st.session_state.current_package["delivery"]
-        if not is_road_closed(current_location, delivery_loc):
+        segment_path, _ = calculate_segment_path(current_location, delivery_loc)
+        if segment_path:
             return delivery_loc, "delivery"
-        if not is_road_closed(current_location, "Central Hub") and not is_road_closed("Central Hub", delivery_loc):
+        segment_path, _ = calculate_segment_path(current_location, "Central Hub")
+        if segment_path:
             return "Central Hub", "detour"
     available_pickups = [p for p in packages if p["pickup"] == current_location and p["status"] == "waiting"]
     if available_pickups and not st.session_state.current_package:
@@ -164,7 +148,7 @@ def suggest_next_location(current_location, visited_locations, packages):
     if unvisited:
         accessible_unvisited = []
         for loc in unvisited:
-            dist = get_distance(current_location, loc)
+            _, dist = calculate_segment_path(current_location, loc)
             if dist < float('inf'):
                 accessible_unvisited.append((loc, dist))
         if accessible_unvisited:
