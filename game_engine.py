@@ -2,13 +2,13 @@
 import streamlit as st
 import numpy as np
 import time
+import networkx as nx
 
 from config import LOCATIONS, SCORING_WEIGHTS, check_constraints
 from routing import solve_tsp, get_distance, calculate_route_distance
 from feature_road_closures import generate_road_closures, is_road_closed
 from feature_packages import generate_packages
 from data_management import save_player_data
-import networkx as nx
 
 def start_new_game():
     """Start a new game with all features combined"""
