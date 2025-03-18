@@ -10,13 +10,13 @@ import json
 # Import our modules
 from config import LOCATIONS, GAME_MODES, STYLES
 from game_engine import start_new_game, process_location_checkin, get_game_status
-from visualization import visualize_map, render_game_controls, render_game_results
+from visualization import visualize_map, render_action_controls, render_game_info, render_game_results
 from data_management import save_player_data, export_player_data, reset_leaderboard, reset_all_data
 
 # Page configuration
 st.set_page_config(page_title="Logistics Rush", page_icon="🚚", layout="wide")
 
-# Updated CSS styles for clarity
+# CSS styles
 STYLES = """
 <style>
     .main-title {
@@ -157,8 +157,9 @@ st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe
 tab1, tab2, tab3 = st.tabs(["Game", "Leaderboard", "Instructions"])
 
 with tab1:
-    col1, col2 = st.columns([2, 1])
+    col1, col2 = st.columns([2, 1])  # Left column for map and actions, right for info
     with col1:
+        # Map Section
         st.markdown('<div class="card">', unsafe_allow_html=True)
         if st.session_state.game_active:
             map_fig = visualize_map(
@@ -175,6 +176,10 @@ with tab1:
             map_fig = visualize_map()
         st.plotly_chart(map_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+        # Action Controls (Check In and Pickup Package) below map
+        if st.session_state.game_active:
+            render_action_controls()
 
     with col2:
         if not st.session_state.game_active and not st.session_state.game_results:
@@ -202,7 +207,7 @@ with tab1:
             st.markdown('</div>', unsafe_allow_html=True)
 
         elif st.session_state.game_active:
-            render_game_controls()
+            render_game_info()
 
         elif st.session_state.game_results:
             render_game_results()
