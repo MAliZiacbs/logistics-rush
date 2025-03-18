@@ -1,6 +1,7 @@
 import streamlit as st
 import random
 from config import LOCATIONS
+from feature_road_closures import is_road_closed  # Added this import to fix the error
 
 def generate_packages(num_packages=3):
     """Generate random package pickup and delivery locations that don't conflict with constraints"""
