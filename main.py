@@ -51,7 +51,7 @@ if 'current_player' not in st.session_state:
     st.session_state.current_player = None
 
 if 'game_mode' not in st.session_state:
-    st.session_state.game_mode = "Speed Run"
+    st.session_state.game_mode = "Logistics Challenge"
 
 if 'game_results' not in st.session_state:
     st.session_state.game_results = None
@@ -123,12 +123,8 @@ with tab1:
                 name = st.text_input("Name*")
                 email = st.text_input("Email*")
                 company = st.text_input("Company")
-                st.subheader("Select Game Mode")
-                mode = st.radio(
-                    "Game Mode",
-                    list(GAME_MODES.keys()),
-                    format_func=lambda x: f"{x}: {GAME_MODES[x]['description']}"
-                )
+                st.subheader("Game Challenge")
+                st.markdown(GAME_MODES["Logistics Challenge"]["description"])
                 submit = st.form_submit_button("Start Game")
                 if submit:
                     if not name or not email:
@@ -139,7 +135,7 @@ with tab1:
                             "email": email,
                             "company": company
                         }
-                        st.session_state.game_mode = mode
+                        st.session_state.game_mode = "Logistics Challenge"
                         start_new_game()
                         st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
@@ -160,14 +156,16 @@ with tab2:
         if st.session_state.game_active:
             st.success("Game has started! Please use the Game tab to play.")
 
-        mode_filter = st.selectbox("Game Mode", ["All Modes"] + list(GAME_MODES.keys()))
-    with lb_col2:
         sort_by = st.selectbox("Sort By", ["Score", "Time", "Efficiency"])
+    with lb_col2:
+        company_filter = st.selectbox("Company Filter", ["All Companies"] + 
+                                      list(set([p.get("company", "Unknown") for p in st.session_state.players.values()])))
 
     if st.session_state.leaderboard:
         filtered_data = st.session_state.leaderboard.copy()
-        if mode_filter != "All Modes":
-            filtered_data = [entry for entry in filtered_data if entry["mode"] == mode_filter]
+        
+        if company_filter != "All Companies":
+            filtered_data = [entry for entry in filtered_data if entry["company"] == company_filter]
 
         if sort_by == "Score":
             filtered_data.sort(key=lambda x: x["score"], reverse=True)
@@ -181,8 +179,8 @@ with tab2:
             df["rank"] = range(1, len(df) + 1)
             df["time"] = df["time"].apply(lambda x: f"{x:.1f}s")
             df["efficiency"] = df["efficiency"].apply(lambda x: f"{x}%")
-            display_df = df[["rank", "name", "company", "mode", "time", "efficiency", "score", "timestamp"]]
-            display_df.columns = ["Rank", "Player", "Company", "Mode", "Time", "Efficiency", "Score", "Date"]
+            display_df = df[["rank", "name", "company", "time", "efficiency", "score", "timestamp"]]
+            display_df.columns = ["Rank", "Player", "Company", "Time", "Efficiency", "Score", "Date"]
             st.dataframe(
                 display_df,
                 column_config={
@@ -219,22 +217,21 @@ with tab3:
     ### Basic Gameplay
 
     1. **Register** by entering your details
-    2. **Select** a game mode based on your interests
-    3. **Navigate** the Sphero robot starting from the indicated location
-    4. **Visit** all required locations in an efficient order
-    5. **Check-in** at each location using the app interface
-    6. **Complete** the route to see your performance results
+    2. **Navigate** the Sphero robot starting from the Factory
+    3. **Overcome** road closures by finding alternative routes
+    4. **Pick up and deliver** packages between locations
+    5. **Follow** the required sequence constraints
+    6. **Complete** your mission to see your performance results
 
-    ### Game Modes
-
+    ### Game Challenge
     """)
-    for mode, details in GAME_MODES.items():
-        st.markdown(f"""
-        #### {mode}
-        **Goal:** {details['description']}
+    
+    st.markdown(f"""
+    #### Logistics Challenge
+    **Goal:** {GAME_MODES["Logistics Challenge"]["description"]}
 
-        {details['instructions']}
-        """)
+    {GAME_MODES["Logistics Challenge"]["instructions"]}
+    """)
 
     st.markdown("""
     ### The Traveling Salesman Problem
@@ -262,17 +259,18 @@ with tab3:
                 )
 
                 st.subheader("Player Analytics")
-                st.markdown("#### Game Mode Distribution")
-                mode_counts = player_df["Game Mode"].value_counts().reset_index()
-                mode_counts.columns = ["Game Mode", "Count"]
-                fig = px.pie(mode_counts, values="Count", names="Game Mode", title="Games by Mode")
-                st.plotly_chart(fig)
-
                 st.markdown("#### Company Distribution")
                 company_counts = player_df["Company"].value_counts().reset_index()
                 company_counts.columns = ["Company", "Count"]
                 fig = px.bar(company_counts.head(10), x="Company", y="Count", title="Top 10 Companies")
                 st.plotly_chart(fig)
+                
+                st.markdown("#### Performance Analysis")
+                avg_score = player_df["Score"].mean()
+                avg_time = player_df["Time"].mean()
+                st.metric("Average Score", f"{avg_score:.1f}")
+                st.metric("Average Time", f"{avg_time:.1f}s")
+                
             else:
                 st.info("No player data available yet.")
         else:

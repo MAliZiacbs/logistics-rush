@@ -57,28 +57,41 @@ def check_constraints(route):
     return True
 
 def solve_tsp(start_location, locations):
-    """Solve the Traveling Salesman Problem to find optimal route accounting for road closures"""
-    # For complex supply chain mode, ensure constraints are followed
-    if st.session_state.game_mode == "Complex Supply Chain":
-        if "Factory" in locations and "Shop" in locations:
-            factory_idx = locations.index("Factory")
-            shop_idx = locations.index("Shop")
-            if factory_idx > shop_idx:
-                # Swap to ensure Factory comes before Shop
-                locations[factory_idx], locations[shop_idx] = locations[shop_idx], locations[factory_idx]
-        if "DHL Hub" in locations and "Residence" in locations:
-            dhl_idx = locations.index("DHL Hub")
-            res_idx = locations.index("Residence")
-            if dhl_idx > res_idx:
-                # Swap to ensure DHL Hub comes before Residence
-                locations[dhl_idx], locations[res_idx] = locations[res_idx], locations[dhl_idx]
+    """Solve the Traveling Salesman Problem to find optimal route accounting for road closures and constraints"""
+    # Apply constraints to ensure valid ordering
+    ordered_locations = locations.copy()
+    
+    # Check and reorder to ensure Factory comes before Shop
+    if "Factory" in ordered_locations and "Shop" in ordered_locations:
+        factory_idx = ordered_locations.index("Factory")
+        shop_idx = ordered_locations.index("Shop")
+        if factory_idx > shop_idx:
+            # Swap to ensure Factory comes before Shop
+            ordered_locations[factory_idx], ordered_locations[shop_idx] = ordered_locations[shop_idx], ordered_locations[factory_idx]
+    
+    # Check and reorder to ensure DHL Hub comes before Residence
+    if "DHL Hub" in ordered_locations and "Residence" in ordered_locations:
+        dhl_idx = ordered_locations.index("DHL Hub")
+        res_idx = ordered_locations.index("Residence")
+        if dhl_idx > res_idx:
+            # Swap to ensure DHL Hub comes before Residence
+            ordered_locations[dhl_idx], ordered_locations[res_idx] = ordered_locations[res_idx], ordered_locations[dhl_idx]
 
     best_route = None
     min_distance = float('inf')
-
-    remaining = [loc for loc in locations if loc != start_location]
+    
+    # Get all locations that aren't the start location
+    remaining = [loc for loc in ordered_locations if loc != start_location]
+    
+    # Generate all possible route permutations
     for perm in permutations(remaining):
         route = [start_location] + list(perm)
+        
+        # Check if route follows constraints
+        if not check_constraints(route):
+            continue
+            
+        # Calculate route distance
         distance = 0
         valid_route = True
         
@@ -140,3 +153,40 @@ def get_nearest_accessible_location(current_location):
     # Return nearest accessible location
     accessible.sort(key=lambda x: x[1])
     return accessible[0][0]
+
+def suggest_next_location(current_location, visited_locations, packages):
+    """Suggest the next best location to visit based on current state"""
+    # If carrying a package, go to delivery location
+    if st.session_state.current_package:
+        delivery_loc = st.session_state.current_package["delivery"]
+        # Check if direct route is possible
+        if not is_road_closed(current_location, delivery_loc):
+            return delivery_loc, "delivery"
+        
+        # Try routing through Central Hub
+        if not is_road_closed(current_location, "Central Hub") and not is_road_closed("Central Hub", delivery_loc):
+            return "Central Hub", "detour"
+    
+    # If at a location with pickup and not carrying a package, suggest picking up
+    available_pickups = [p for p in packages if p["pickup"] == current_location and p["status"] == "waiting"]
+    if available_pickups and not st.session_state.current_package:
+        return current_location, "pickup"
+    
+    # If haven't visited all locations, suggest closest unvisited location
+    main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
+    unvisited = [loc for loc in main_locations if loc not in visited_locations]
+    
+    if unvisited:
+        # Find closest accessible unvisited location
+        accessible_unvisited = []
+        for loc in unvisited:
+            dist = get_distance(current_location, loc)
+            if dist < float('inf'):
+                accessible_unvisited.append((loc, dist))
+        
+        if accessible_unvisited:
+            accessible_unvisited.sort(key=lambda x: x[1])
+            return accessible_unvisited[0][0], "unvisited"
+    
+    # Default to Central Hub if other options aren't available
+    return "Central Hub", "default"

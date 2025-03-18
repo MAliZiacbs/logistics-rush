@@ -37,90 +37,30 @@ DISTANCES = {
     ("Residence", "Central Hub"): 2.0,
 }
 
-# Game modes with clear descriptions
+# Game modes with clear descriptions - now just a single, combined mode
 GAME_MODES = {
-    "Speed Run": {
-        "description": "Visit all locations as quickly as possible",
-        "instructions": """
-        1. Start at the highlighted location
-        2. Visit all 4 locations in any order
-        3. Move the Sphero as quickly as possible
-        4. Check in at each location using the buttons
-       
-        Your score depends 70% on time and 30% on route efficiency.
-        """
-    },
-    "Efficiency Challenge": {
-        "description": "Find the shortest possible route",
-        "instructions": """
-        1. Start at the highlighted location
-        2. Plan your route carefully to minimize distance
-        3. Visit all 4 locations in the optimal order
-        4. Check in at each location using the buttons
-       
-        Your score depends 80% on route efficiency and 20% on time.
-        """
-    },
-    "Complex Supply Chain": {
-        "description": "Follow specific order constraints",
+    "Logistics Challenge": {
+        "description": "Master all logistics challenges in one comprehensive experience",
         "instructions": """
         1. Start at the Factory
-        2. Follow these rules:
-           - Visit Factory BEFORE Shop
-           - Visit DHL Hub BEFORE Residence
-        3. Visit all 4 locations while following these rules
-        4. Check in at each location using the buttons
-       
-        Your score depends 40% on efficiency, 40% on following constraints, and 20% on time.
-        """
-    },
-    "Road Closure Challenge": {
-        "description": "Navigate with closed roads and obstructions",
-        "instructions": """
-        1. Start at the highlighted location
-        2. Road closures will randomly appear, blocking certain routes
-        3. Find alternative paths to reach all locations
-        4. Check in at each location using the buttons
+        2. Navigate through the network with random road closures
+        3. Pick up and deliver packages along your route
+        4. Follow sequence constraints (Factory before Shop, DHL Hub before Residence)
+        5. Complete your mission as efficiently as possible
         
-        Your score depends 50% on efficiency and 50% on time.
-        """
-    },
-    "Package Delivery": {
-        "description": "Pick up and deliver packages between locations",
-        "instructions": """
-        1. Start at the highlighted location
-        2. Pick up packages by pressing the "Pick Up Package" button
-        3. Deliver each package to its designated destination
-        4. Complete all package deliveries as efficiently as possible
-        
-        Your score depends 40% on efficiency, 40% on successful deliveries, and 20% on time.
+        Your score depends on efficiency (40%), successful deliveries (30%), 
+        following constraints (20%), and time (10%).
         """
     }
 }
 
-# Scoring weights for different game modes
+# Scoring weights for the unified game mode
 SCORING_WEIGHTS = {
-    "Speed Run": {
-        "efficiency": 0.3,
-        "time": 0.7
-    },
-    "Efficiency Challenge": {
-        "efficiency": 0.8,
-        "time": 0.2
-    },
-    "Complex Supply Chain": {
+    "Logistics Challenge": {
         "efficiency": 0.4,
-        "constraints": 0.4,
-        "time": 0.2
-    },
-    "Road Closure Challenge": {
-        "efficiency": 0.5,
-        "time": 0.5
-    },
-    "Package Delivery": {
-        "efficiency": 0.4,
-        "delivery": 0.4,
-        "time": 0.2
+        "delivery": 0.3,
+        "constraints": 0.2,
+        "time": 0.1
     }
 }
 
@@ -200,6 +140,25 @@ STYLES = """
         padding: 10px;
         margin-bottom: 12px;
         border-radius: 4px;
+    }
+    .constraints-info {
+        background-color: #f3f4f6;
+        border-left: 4px solid #6366F1;
+        padding: 10px;
+        margin-bottom: 12px;
+        border-radius: 4px;
+    }
+    .challenge-summary {
+        background-color: #f9fafb;
+        border-radius: 6px;
+        padding: 15px;
+        margin: 15px 0;
+    }
+    .score-breakdown {
+        background-color: #f0f9ff;
+        border-radius: 6px;
+        padding: 10px;
+        margin-top: 10px;
     }
 </style>
 """
