@@ -4,7 +4,7 @@ import numpy as np
 import time
 
 from config import LOCATIONS, GAME_MODES
-from routing import get_distance 
+from routing import get_distance, suggest_next_location
 from feature_road_closures import is_road_closed
 from feature_packages import get_available_packages_at_location, get_package_hints
 from game_engine import process_location_checkin, pickup_package, get_game_status, get_completion_summary
@@ -416,137 +416,97 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
     return fig
 
 def render_game_controls():
-    """Render the game controls UI for active games"""
+    """Render the game controls UI with improved clarity"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown(f"### Logistics Challenge")
     
-    # Show all game elements at once in the integrated mode
+    # Status Bar at the Top
+    game_status = get_game_status()
+    if game_status:
+        st.markdown('<div class="status-bar">', unsafe_allow_html=True)
+        st.markdown(f"⏱ **Time:** {game_status['time']:.1f}s | 📦 **Packages:** {len(st.session_state.delivered_packages)}/{st.session_state.total_packages} | 🌐 **Progress:** {game_status['combined_progress']}%")
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    # Road closure warning
-    if st.session_state.closed_roads:
-        st.markdown('<div class="road-closure-alert">⛔️ ALERT: Road Closures In Effect!</div>', unsafe_allow_html=True)
-        closures_text = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in st.session_state.closed_roads])
-        st.markdown(f"**Closed roads:** {closures_text}")
+    # Game Info in Expanders
+    with st.expander("Game Info", expanded=True):
+        # Road Closures
+        if st.session_state.closed_roads:
+            st.markdown('<div class="road-closure-alert">⛔️ Road Closures:</div>', unsafe_allow_html=True)
+            closures_text = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in st.session_state.closed_roads])
+            st.markdown(closures_text)
+        
+        # Package Status
+        st.markdown('<div class="package-info">', unsafe_allow_html=True)
+        if st.session_state.current_package:
+            pkg = st.session_state.current_package
+            st.markdown(f"🚚 **Carrying:** {pkg['icon']} Package #{pkg['id']} to {pkg['delivery']}")
+        else:
+            st.markdown("🚚 **Carrying:** No package")
+        st.markdown(f"📦 **Delivered:** {len(st.session_state.delivered_packages)}/{st.session_state.total_packages}")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Constraints
+        st.markdown('<div class="constraints-info">', unsafe_allow_html=True)
+        st.markdown("🔄 **Constraints:**")
+        st.markdown("• Factory → Shop")
+        st.markdown("• DHL Hub → Residence")
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    # Package delivery info
-    st.markdown('<div class="package-info">', unsafe_allow_html=True)
-    st.markdown(f"**📊 Package Status:** {len(st.session_state.delivered_packages)}/{st.session_state.total_packages} Delivered")
+    # Suggested Next Move
+    if st.session_state.current_route:
+        current_loc = st.session_state.current_route[-1]
+        next_loc, reason = suggest_next_location(current_loc, st.session_state.current_route, st.session_state.packages)
+        st.info(f"Next Suggested Move: {LOCATIONS[next_loc]['emoji']} {next_loc} ({reason})")
     
-    if st.session_state.current_package:
-        pkg = st.session_state.current_package
-        st.markdown(f"**🚚 Carrying:** {pkg['icon']} Package #{pkg['id']} to {pkg['delivery']}")
-    else:
-        st.markdown("**🚚 Carrying:** No package")
+    # Location Check-in Buttons
+    st.markdown("### Check In")
+    col1, col2 = st.columns(2)
+    with col1:
+        for loc in ["Factory", "Shop"]:
+            disabled = (loc == "Shop" and "Factory" not in st.session_state.current_route)
+            btn_type = "primary" if st.session_state.current_route and suggest_next_location(st.session_state.current_route[-1], st.session_state.current_route, st.session_state.packages)[0] == loc else "secondary"
+            if st.button(f"{LOCATIONS[loc]['emoji']} {loc}", key=f"btn_{loc}", disabled=disabled, type=btn_type, use_container_width=True):
+                result = process_location_checkin(loc)
+                if result:
+                    st.rerun()
+    with col2:
+        for loc in ["DHL Hub", "Residence"]:
+            disabled = (loc == "Residence" and "DHL Hub" not in st.session_state.current_route)
+            btn_type = "primary" if st.session_state.current_route and suggest_next_location(st.session_state.current_route[-1], st.session_state.current_route, st.session_state.packages)[0] == loc else "secondary"
+            if st.button(f"{LOCATIONS[loc]['emoji']} {loc}", key=f"btn_{loc}", disabled=disabled, type=btn_type, use_container_width=True):
+                result = process_location_checkin(loc)
+                if result:
+                    st.rerun()
     
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Central Hub Button
+    btn_type = "primary" if st.session_state.current_route and suggest_next_location(st.session_state.current_route[-1], st.session_state.current_route, st.session_state.packages)[0] == "Central Hub" else "secondary"
+    if st.button(f"{LOCATIONS['Central Hub']['emoji']} Central Hub", key="btn_central", type=btn_type, use_container_width=True):
+        result = process_location_checkin("Central Hub")
+        if result:
+            st.rerun()
     
-    # Sequence constraints info
-    st.markdown('<div class="constraints-info">', unsafe_allow_html=True)
-    st.markdown("**🔄 Sequence Constraints:**")
-    st.markdown("• Factory must be visited before Shop")
-    st.markdown("• DHL Hub must be visited before Residence")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Package Pickup
+    if st.session_state.current_route:
+        current_loc = st.session_state.current_route[-1]
+        pickups = get_available_packages_at_location(current_loc)
+        if pickups and not st.session_state.current_package:
+            st.markdown("### Pickup Package")
+            for pkg in pickups:
+                if st.button(f"{pkg['icon']} Package #{pkg['id']} to {pkg['delivery']}", key=f"pickup_{pkg['id']}", type="primary", use_container_width=True):
+                    pickup_package(pkg)
+                    st.rerun()
     
-    # Game status and objectives
-    completion = get_completion_summary()
-    if completion:
-        # Progress bars for each objective
-        st.markdown("### Current Status")
-        game_status = get_game_status()
-        if game_status:
-            st.metric("Time", f"{game_status['time']:.1f} seconds")
-            
-            # Location visits progress
-            loc_visited = len(set([loc for loc in st.session_state.current_route if loc != "Central Hub"]))
-            total_loc = len([loc for loc in LOCATIONS.keys() if loc != "Central Hub"])
-            loc_progress = min(100, int((loc_visited / total_loc) * 100))
-            
-            st.markdown(f"Location Visits: {loc_visited}/{total_loc} ({loc_progress}%)")
-            st.markdown(
-                f"""<div class="progress-bar"><div class="progress-fill" style="width:{loc_progress}%"></div></div>""",
-                unsafe_allow_html=True
-            )
-            
-            # Package delivery progress
-            pkg_progress = min(100, int((len(st.session_state.delivered_packages) / 
-                                      max(1, st.session_state.total_packages)) * 100))
-            
-            st.markdown(f"Package Deliveries: {len(st.session_state.delivered_packages)}/{st.session_state.total_packages} ({pkg_progress}%)")
-            st.markdown(
-                f"""<div class="progress-bar"><div class="progress-fill" style="width:{pkg_progress}%"></div></div>""",
-                unsafe_allow_html=True
-            )
-            
-            # Constraints status
-            constraint_status = "✅ Met" if completion["constraints_followed"] else "❌ Not Met"
-            st.markdown(f"Constraints: {constraint_status}")
-            
-            if not completion["constraints_followed"]:
-                for issue in completion["constraint_issues"]:
-                    st.warning(issue)
-
-    # Game hints
+    # Hints
     hints = get_package_hints()
     if hints:
-        with st.expander("Need a hint?"):
+        with st.expander("Hints"):
             for hint in hints:
                 st.markdown(f"• {hint}")
-
-    # Location check-in buttons
-    st.markdown("### Check-in at Location")
-    btn_col1, btn_col2 = st.columns(2)
-    with btn_col1:
-        if st.button(f"{LOCATIONS['Factory']['emoji']} Factory", key="factory_btn", use_container_width=True):
-            results = process_location_checkin("Factory")
-            if results:
-                st.rerun()
-        if st.button(f"{LOCATIONS['Shop']['emoji']} Shop", key="shop_btn", use_container_width=True):
-            results = process_location_checkin("Shop")
-            if results:
-                st.rerun()
-    with btn_col2:
-        if st.button(f"{LOCATIONS['DHL Hub']['emoji']} DHL Hub", key="dhl_btn", use_container_width=True):
-            results = process_location_checkin("DHL Hub")
-            if results:
-                st.rerun()
-        if st.button(f"{LOCATIONS['Residence']['emoji']} Residence", key="res_btn", use_container_width=True):
-            results = process_location_checkin("Residence")
-            if results:
-                st.rerun()
     
-    # Central Hub button - highlight as a detour option
-    st.button(f"{LOCATIONS['Central Hub']['emoji']} Central Hub", key="central_hub_btn", use_container_width=True,
-              help="Use the Central Hub to bypass road closures", 
-              on_click=lambda: process_location_checkin("Central Hub"))
-    
-    # Package pickup button (only shown when at a location with packages)
-    if st.session_state.current_route:
-        current_location = st.session_state.current_route[-1]
-        available_pickups = get_available_packages_at_location(current_location)
-        
-        if available_pickups and not st.session_state.current_package:
-            st.markdown("### Package Actions")
-            # Allow player to pick up a package
-            pickup_options = {f"{pkg['icon']} Package #{pkg['id']} to {pkg['delivery']}": pkg 
-                              for pkg in available_pickups}
-            
-            selected_package_str = st.selectbox(
-                "Select a package to pick up:",
-                options=list(pickup_options.keys())
-            )
-            
-            if st.button("📦 Pick Up Package", key="pickup_btn", 
-                         use_container_width=True, type="primary", 
-                         help="Pick up the selected package"):
-                selected_package = pickup_options[selected_package_str]
-                pickup_package(selected_package)
-                st.rerun()
-
-    # Show current route
+    # Current Route
     if st.session_state.current_route:
         st.markdown("### Your Route")
-        route_text = " → ".join(st.session_state.current_route)
-        st.code(route_text)
+        st.code(" → ".join(st.session_state.current_route))
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 def render_game_results():
@@ -575,7 +535,7 @@ def render_game_results():
     # Detailed score breakdown
     st.markdown('<div class="score-breakdown">', unsafe_allow_html=True)
     st.markdown("### Score Breakdown")
-    components = results["score_components"]
+    components = results['score_components']
     
     col_score1, col_score2 = st.columns(2)
     with col_score1:
