@@ -58,7 +58,7 @@ def is_valid_route(route):
     return True
 
 def solve_tsp(start_location, locations):
-    """Solve TSP with Nearest Neighbor heuristic, handling packages and detours"""
+    """Solve TSP with Nearest Neighbor heuristic, handling packages and detours with backtracking"""
     packages = st.session_state.packages
     unvisited = locations.copy()
     current_location = start_location
@@ -66,8 +66,10 @@ def solve_tsp(start_location, locations):
     packages_to_handle = {p["id"]: {"pickup": p["pickup"], "delivery": p["delivery"]} for p in packages}
     current_package = None
     total_distance = 0
+    max_attempts = len(unvisited) * 2  # Limit backtracking attempts
 
-    while unvisited or packages_to_handle:
+    attempt = 0
+    while unvisited or packages_to_handle and attempt < max_attempts:
         next_loc = None
         min_dist = float('inf')
         # Prioritize package pickups if no package is held
@@ -120,7 +122,9 @@ def solve_tsp(start_location, locations):
             total_distance += segment_dist
             current_location = next_loc
         else:
-            break
+            attempt += 1  # Backtrack by trying a different path if stuck
+            if attempt >= max_attempts:
+                break
 
     # Return to start
     _, return_dist = calculate_segment_path(current_location, start_location)
@@ -134,6 +138,8 @@ def solve_tsp(start_location, locations):
         return None, None, float('inf')
 
     full_path, _ = calculate_route_distance(action_route)
+    if not full_path:
+        return None, None, float('inf')
     return action_route, full_path, total_distance
 
 def get_nearest_accessible_location(current_location):

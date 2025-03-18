@@ -33,12 +33,21 @@ def start_new_game():
     st.session_state.packages = generate_packages(num_packages=3)
     st.session_state.total_packages = len(st.session_state.packages)
 
-    # Validate initial state
+    # Try to find an optimal route
     optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
     if optimal_route is None:
-        st.error("No feasible route found with current road closures. Please try again.")
-        st.session_state.game_active = False
-        return
+        st.warning("Optimal route calculation failed. Using fallback route via Central Hub.")
+        # Fallback route ensuring all locations are visited
+        fallback_route = [
+            {"location": start_location, "action": "visit", "package_id": None},
+            {"location": "Central Hub", "action": "visit", "package_id": None}
+        ]
+        for loc in locations_to_visit:
+            if loc != start_location:
+                fallback_route.append({"location": loc, "action": "visit", "package_id": None})
+        fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
+        optimal_route = fallback_route
+        _, optimal_path, optimal_distance = calculate_route_distance(fallback_route)
 
     st.session_state.current_route = [start_location]
     st.session_state.optimal_route = optimal_route
