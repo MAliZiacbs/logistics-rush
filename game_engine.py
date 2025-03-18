@@ -32,12 +32,16 @@ def start_new_game():
 
     optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
     if optimal_route is None:
-        st.warning("Road closures make direct routes impossible! Try routing through Central Hub.")
+        st.warning("Initial route calculation failed. Adding Central Hub as a waypoint.")
         expanded_locations = locations_to_visit + ["Central Hub"]
         optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, expanded_locations)
+        if optimal_route is None:
+            st.error("No feasible route found even with Central Hub. Please reset road closures and try again.")
+            st.session_state.game_active = False
+            return
 
     st.session_state.current_route = [start_location]
-    st.session_state.optimal_route = optimal_route if optimal_route else [{"location": start_location, "action": "visit", "package_id": None}]
+    st.session_state.optimal_route = optimal_route
     st.session_state.optimal_path = optimal_path if optimal_path else [start_location]
 
 def process_location_checkin(location):

@@ -38,7 +38,7 @@ def calculate_segment_path(from_loc, to_loc):
 def calculate_route_distance(route):
     """Calculate the total distance of a route with detours"""
     if len(route) <= 1:
-        return 0
+        return None, 0
     total_distance = 0
     full_path = []
     for i in range(len(route) - 1):
@@ -114,7 +114,7 @@ def solve_tsp(start_location, locations):
                 best_path = full_path
 
     if best_route is None:
-        return None, float('inf')
+        return None, None, float('inf')  # Return three values even in failure case
     return best_route, best_path, min_distance
 
 def get_nearest_accessible_location(current_location):
