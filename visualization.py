@@ -10,54 +10,97 @@ from feature_packages import get_available_packages_at_location, get_package_hin
 from game_engine import process_location_checkin, pickup_package, get_game_status, get_completion_summary
 
 def visualize_map(player_route=None, optimal_route=None, constraints=None):
-    """Create a clean, professional visual map with slight offset for overlapping routes."""
+    """Create a clean, professional visual map with improved route display."""
     fig = go.Figure()
-   
-    fig.add_shape(type="rect", x0=0, y0=0, x1=800, y1=400, fillcolor="rgba(220, 240, 230, 0.6)", line=dict(color="#2e8b57", width=3), layer="below")
+    
+    # Background grid and styling
+    fig.add_shape(type="rect", x0=0, y0=0, x1=800, y1=400, fillcolor="rgba(220, 240, 230, 0.6)", 
+                  line=dict(color="#2e8b57", width=3), layer="below")
     for i in range(0, 801, 100):
-        fig.add_shape(type="line", x0=i, y0=0, x1=i, y1=400, line=dict(color="rgba(0, 80, 40, 0.1)", width=1), layer="below")
+        fig.add_shape(type="line", x0=i, y0=0, x1=i, y1=400, 
+                      line=dict(color="rgba(0, 80, 40, 0.1)", width=1), layer="below")
     for i in range(0, 401, 100):
-        fig.add_shape(type="line", x0=0, y0=i, x1=800, y1=i, line=dict(color="rgba(0, 80, 40, 0.1)", width=1), layer="below")
-   
+        fig.add_shape(type="line", x0=0, y0=i, x1=800, y1=i, 
+                      line=dict(color="rgba(0, 80, 40, 0.1)", width=1), layer="below")
+    
+    # Draw road segments
     for location, details in LOCATIONS.items():
         if location != "Central Hub":
             road_closed = is_road_closed(location, "Central Hub")
-            fig.add_shape(type="line", x0=LOCATIONS["Central Hub"]["position"][0], y0=LOCATIONS["Central Hub"]["position"][1], x1=details["position"][0], y1=details["position"][1], line=dict(color="#555555" if not road_closed else "#ff0000", width=8, dash="dot" if road_closed else None), layer="below")
+            fig.add_shape(type="line", x0=LOCATIONS["Central Hub"]["position"][0], 
+                          y0=LOCATIONS["Central Hub"]["position"][1], x1=details["position"][0], 
+                          y1=details["position"][1], 
+                          line=dict(color="#555555" if not road_closed else "#ff0000", width=8, 
+                                    dash="dot" if road_closed else None), layer="below")
             if not road_closed:
-                fig.add_shape(type="line", x0=LOCATIONS["Central Hub"]["position"][0], y0=LOCATIONS["Central Hub"]["position"][1], x1=details["position"][0], y1=details["position"][1], line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
+                fig.add_shape(type="line", x0=LOCATIONS["Central Hub"]["position"][0], 
+                              y0=LOCATIONS["Central Hub"]["position"][1], x1=details["position"][0], 
+                              y1=details["position"][1], 
+                              line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
     locations_list = ["Factory", "DHL Hub", "Shop", "Residence", "Factory"]
     for i in range(len(locations_list) - 1):
         loc1, loc2 = locations_list[i], locations_list[i + 1]
         road_closed = is_road_closed(loc1, loc2)
-        fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], line=dict(color="#555555" if not road_closed else "#ff0000", width=6, dash="dot" if road_closed else None), layer="below")
+        fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], 
+                      x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], 
+                      line=dict(color="#555555" if not road_closed else "#ff0000", width=6, 
+                                dash="dot" if road_closed else None), layer="below")
         if not road_closed:
-            fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
+            fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], 
+                          x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], 
+                          line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
     diagonals = [("Factory", "Shop"), ("DHL Hub", "Residence")]
     for loc1, loc2 in diagonals:
         road_closed = is_road_closed(loc1, loc2)
-        fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], line=dict(color="#555555" if not road_closed else "#ff0000", width=4, dash="dot" if road_closed else None), layer="below")
+        fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], 
+                      x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], 
+                      line=dict(color="#555555" if not road_closed else "#ff0000", width=4, 
+                                dash="dot" if road_closed else None), layer="below")
         if not road_closed:
-            fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
-   
-    # Optimal route (using optimal_path)
+            fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], 
+                          x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], 
+                          line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
+
+    # User Route: Solid line with hover info
+    if player_route and len(player_route) > 1:
+        route_x = [LOCATIONS[loc]["position"][0] for loc in player_route]
+        route_y = [LOCATIONS[loc]["position"][1] for loc in player_route]
+        hover_text = [f"Step {i+1}: {loc}" for i, loc in enumerate(player_route)]
+        fig.add_trace(go.Scatter(
+            x=route_x, y=route_y, mode='lines+markers',
+            line=dict(color='#e63946', width=4), opacity=0.8,
+            marker=dict(size=8, color='#e63946', line=dict(color='#ffffff', width=1)),
+            name='Your Route', hoverinfo='text', hovertext=hover_text
+        ))
+
+    # Optimal Route: Curved paths with action-based colors
     if optimal_route and len(st.session_state.optimal_path) > 1:
-        route_x = [LOCATIONS[loc]["position"][0] for loc in st.session_state.optimal_path]
-        route_y = [LOCATIONS[loc]["position"][1] for loc in st.session_state.optimal_path]
-        fig.add_trace(go.Scatter(x=route_x, y=route_y, mode='lines', line=dict(color='#0466c8', width=5), opacity=0.3, showlegend=False))
-        fig.add_trace(go.Scatter(x=route_x, y=route_y, mode='lines+markers', line=dict(color='#0466c8', width=3, dash='dash'), marker=dict(size=7, color='#0466c8', symbol='circle', line=dict(color='#ffffff', width=1)), name='Optimal Route'))
-        for i, loc in enumerate(st.session_state.optimal_path):
-            action = next((a for a in st.session_state.optimal_route if a["location"] == loc), None)
-            label = chr(65 + i)
-            if action and action["action"] == "pickup":
-                label += f" P{action['package_id']}"
-            elif action and action["action"] == "deliver":
-                label += f" D{action['package_id']}"
-            fig.add_annotation(x=route_x[i] - 30, y=route_y[i] - 30, text=label, showarrow=False, font=dict(size=12, color="#ffffff"), bgcolor="#0466c8", borderpad=3, opacity=0.9)
-   
+        for i in range(len(st.session_state.optimal_path) - 1):
+            x0, y0 = LOCATIONS[st.session_state.optimal_path[i]]["position"]
+            x1, y1 = LOCATIONS[st.session_state.optimal_path[i+1]]["position"]
+            action = st.session_state.optimal_route[i]
+            color = '#0466c8' if action["action"] == "visit" else '#10B981' if action["action"] == "pickup" else '#3B82F6'
+            mid_x = (x0 + x1) / 2 - 50  # Curve downward for optimal route
+            mid_y = (y0 + y1) / 2
+            path = f"M {x0},{y0} Q {mid_x},{mid_y} {x1},{y1}"
+            hover_text = f"Step {chr(65+i)}: {action['location']} ({action['action'][0].upper()}{action['package_id'] or ''})"
+            fig.add_shape(type="path", path=path, line=dict(color=color, width=2, dash='dash'), opacity=0.5)
+            # Add hover point for each segment
+            fig.add_trace(go.Scatter(
+                x=[(x0 + x1) / 2], y=[(y0 + y1) / 2], mode='markers',
+                marker=dict(size=1, color=color, opacity=0), hoverinfo='text', hovertext=[hover_text],
+                showlegend=False
+            ))
+
+    # Central Hub
     central_hub = LOCATIONS["Central Hub"]
-    fig.add_shape(type="rect", x0=central_hub["position"][0] - 50, y0=central_hub["position"][1] - 50, x1=central_hub["position"][0] + 50, y1=central_hub["position"][1] + 50, fillcolor="#333333", line=dict(color="#ffffff", width=2))
-    fig.add_annotation(x=central_hub["position"][0], y=central_hub["position"][1], text="CENTRAL<br>HUB", showarrow=False, font=dict(size=14, color="#ffffff", family="Arial"))
-   
+    fig.add_shape(type="rect", x0=central_hub["position"][0] - 50, y0=central_hub["position"][1] - 50, 
+                  x1=central_hub["position"][0] + 50, y1=central_hub["position"][1] + 50, 
+                  fillcolor="#333333", line=dict(color="#ffffff", width=2))
+    fig.add_annotation(x=central_hub["position"][0], y=central_hub["position"][1], text="CENTRAL<br>HUB", 
+                       showarrow=False, font=dict(size=14, color="#ffffff", family="Arial"))
+
+    # Location markers and package indicators
     for location, details in LOCATIONS.items():
         if location != "Central Hub":
             r = 40
@@ -72,34 +115,44 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
             elif has_delivery:
                 highlight_color = "#3B82F6"
             if constraints and location in constraints:
-                fig.add_shape(type="path", path=path, fillcolor="rgba(0,0,0,0)", line=dict(color="#6366F1", width=4))
-            fig.add_shape(type="path", path=path, fillcolor=highlight_color, line=dict(color="#ffffff", width=2))
-            fig.add_annotation(x=details["position"][0], y=details["position"][1], text=f"{location}", showarrow=False, font=dict(size=12, color="#ffffff", family="Arial", weight="bold"))
-            fig.add_annotation(x=details["position"][0], y=details["position"][1] - 15, text=f"{details['emoji']}", showarrow=False, font=dict(size=20))
+                fig.add_shape(type="path", path=path, fillcolor="rgba(0,0,0,0)", 
+                              line=dict(color="#6366F1", width=4))
+            fig.add_shape(type="path", path=path, fillcolor=highlight_color, 
+                          line=dict(color="#ffffff", width=2))
+            fig.add_annotation(x=details["position"][0], y=details["position"][1], text=f"{location}", 
+                               showarrow=False, font=dict(size=12, color="#ffffff", family="Arial", weight="bold"))
+            fig.add_annotation(x=details["position"][0], y=details["position"][1] - 15, text=f"{details['emoji']}", 
+                               showarrow=False, font=dict(size=20))
             if constraints and location in constraints:
-                fig.add_annotation(x=details["position"][0], y=details["position"][1] + 55, text=constraints[location], showarrow=False, font=dict(size=10, color="#333333"), bgcolor="rgba(255,255,255,0.8)", bordercolor="#6366F1", borderwidth=1, borderpad=3)
+                fig.add_annotation(x=details["position"][0], y=details["position"][1] + 55, 
+                                   text=constraints[location], showarrow=False, 
+                                   font=dict(size=10, color="#333333"), bgcolor="rgba(255,255,255,0.8)", 
+                                   bordercolor="#6366F1", borderwidth=1, borderpad=3)
             pending_packages = [p for p in st.session_state.packages if p["pickup"] == location and p["status"] == "waiting"]
             for i, pkg in enumerate(pending_packages[:3]):
-                fig.add_annotation(x=details["position"][0], y=details["position"][1] - 50 - (i * 20), text=f"{pkg['icon']} #{pkg['id']}", showarrow=False, font=dict(size=16), bgcolor="rgba(255,255,255,0.8)", bordercolor="#10B981", borderwidth=2, borderpad=3)
-   
-    offset_x, offset_y = (5, -5) if player_route and optimal_route else (0, 0)
-    if player_route and len(player_route) > 1:
-        route_x = [LOCATIONS[loc]["position"][0] + offset_x for loc in player_route]
-        route_y = [LOCATIONS[loc]["position"][1] + offset_y for loc in player_route]
-        fig.add_trace(go.Scatter(x=route_x, y=route_y, mode='lines', line=dict(color='#e63946', width=6), opacity=0.2, showlegend=False))
-        fig.add_trace(go.Scatter(x=route_x, y=route_y, mode='lines+markers', line=dict(color='#e63946', width=3), marker=dict(size=8, color='#e63946', line=dict(color='#ffffff', width=1)), name='Your Route'))
-        for i, loc in enumerate(player_route):
-            fig.add_annotation(x=LOCATIONS[loc]["position"][0] + offset_x + 30, y=LOCATIONS[loc]["position"][1] + offset_y + 30, text=str(i+1), showarrow=False, font=dict(size=12, color="#ffffff"), bgcolor="#e63946", borderpad=3, opacity=0.9)
-   
-    if player_route and optimal_route:
-        fig.add_annotation(x=650, y=40, text="Your Route: 1→2→3→...", showarrow=False, font=dict(size=10, color="#e63946"), bgcolor="rgba(255,255,255,0.8)", borderpad=3)
-        fig.add_annotation(x=650, y=70, text="Optimal: A P1→B D1→...", showarrow=False, font=dict(size=10, color="#0466c8"), bgcolor="rgba(255,255,255,0.8)", borderpad=3)
-        
+                fig.add_annotation(x=details["position"][0], y=details["position"][1] - 50 - (i * 20), 
+                                   text=f"{pkg['icon']} #{pkg['id']}", showarrow=False, font=dict(size=16), 
+                                   bgcolor="rgba(255,255,255,0.8)", bordercolor="#10B981", borderwidth=2, borderpad=3)
+
+    # Additional annotations
     if st.session_state.closed_roads:
-        fig.add_annotation(x=150, y=40, text="⛔️ ROAD CLOSURES", showarrow=False, font=dict(size=12, color="#EF4444", weight="bold"), bgcolor="rgba(255,255,255,0.8)", borderpad=3)
-   
-    fig.add_annotation(x=400, y=370, text="LOGISTICS RUSH", showarrow=False, font=dict(size=24, color="#333333", family="Arial Black"), opacity=0.8)
-    fig.update_layout(height=500, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0.8)", bordercolor="#cccccc", borderwidth=1), xaxis=dict(range=[-50, 850], showgrid=False, zeroline=False, showticklabels=False), yaxis=dict(range=[-50, 450], showgrid=False, zeroline=False, showticklabels=False, scaleanchor="x", scaleratio=1), margin=dict(l=0, r=0, t=30, b=0), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+        fig.add_annotation(x=150, y=40, text="⛔️ ROAD CLOSURES", showarrow=False, 
+                           font=dict(size=12, color="#EF4444", weight="bold"), 
+                           bgcolor="rgba(255,255,255,0.8)", borderpad=3)
+    
+    fig.add_annotation(x=400, y=370, text="LOGISTICS RUSH", showarrow=False, 
+                       font=dict(size=24, color="#333333", family="Arial Black"), opacity=0.8)
+
+    # Layout settings
+    fig.update_layout(
+        height=500, showlegend=True, 
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, 
+                    bgcolor="rgba(255,255,255,0.8)", bordercolor="#cccccc", borderwidth=1),
+        xaxis=dict(range=[-50, 850], showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(range=[-50, 450], showgrid=False, zeroline=False, showticklabels=False, 
+                   scaleanchor="x", scaleratio=1),
+        margin=dict(l=0, r=0, t=30, b=0), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)"
+    )
     return fig
 
 def render_action_controls():
