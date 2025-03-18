@@ -36,15 +36,15 @@ def calculate_segment_path(from_loc, to_loc):
     return None, float('inf')
 
 def calculate_route_distance(route):
-    """Calculate the total distance of a route with detours"""
+    """Calculate the total distance of a route with detours, returning three values"""
     if len(route) <= 1:
-        return None, 0
+        return None, None, 0  # Return three values for consistency
     total_distance = 0
     full_path = []
     for i in range(len(route) - 1):
         segment_path, segment_distance = calculate_segment_path(route[i]["location"], route[i+1]["location"])
         if segment_distance == float('inf'):
-            return None, float('inf')
+            return None, None, float('inf')
         total_distance += segment_distance
         full_path.extend(segment_path if i == 0 else segment_path[1:])  # Avoid duplicating locations
     return full_path, total_distance
