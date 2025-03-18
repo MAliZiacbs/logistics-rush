@@ -3,23 +3,63 @@ import random
 from config import LOCATIONS
 
 def generate_packages(num_packages=3):
-    """Generate random package pickup and delivery locations"""
+    """Generate random package pickup and delivery locations that don't conflict with constraints"""
     locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
     packages = []
     
-    for i in range(num_packages):
-        pickup = random.choice(locations)
-        # Make sure delivery location is different from pickup
-        delivery_options = [loc for loc in locations if loc != pickup]
-        delivery = random.choice(delivery_options)
+    # Special package that requires Factory → Shop route
+    factory_to_shop = {
+        "id": 1,
+        "pickup": "Factory",
+        "delivery": "Shop",
+        "status": "waiting",
+        "icon": "📦",
+        "description": "Factory products for Shop"
+    }
+    packages.append(factory_to_shop)
+    
+    # Special package that requires DHL Hub → Residence route
+    dhl_to_residence = {
+        "id": 2,
+        "pickup": "DHL Hub",
+        "delivery": "Residence",
+        "status": "waiting",
+        "icon": "📬",
+        "description": "Home delivery from DHL Hub"
+    }
+    packages.append(dhl_to_residence)
+    
+    # Add more random packages if requested
+    if num_packages > 2:
+        icons = ["🛒", "🎁", "📚", "📱", "🧸", "🧳", "🎮", "💻", "🎵", "🧴"]
         
-        packages.append({
-            "id": i + 1,
-            "pickup": pickup,
-            "delivery": delivery,
-            "status": "waiting",  # waiting, picked_up, delivered
-            "icon": random.choice(["📦", "📱", "🛒", "🎁", "📚"])
-        })
+        # Define valid combinations that don't conflict with constraints
+        valid_combinations = [
+            ("Factory", "DHL Hub"),
+            ("Factory", "Residence"),
+            ("DHL Hub", "Factory"),
+            ("DHL Hub", "Shop"),
+            ("Shop", "DHL Hub"),
+            ("Shop", "Factory"),
+            ("Shop", "Residence"),
+            ("Residence", "Factory"),
+            ("Residence", "Shop")
+        ]
+        
+        # Add additional random packages
+        for i in range(2, num_packages):
+            # Pick a random valid combination
+            pickup, delivery = random.choice(valid_combinations)
+            
+            # Create the package
+            packages.append({
+                "id": i + 1,
+                "pickup": pickup,
+                "delivery": delivery,
+                "status": "waiting",
+                "icon": random.choice(icons),
+                "description": f"Package from {pickup} to {delivery}"
+            })
     
     return packages
 
@@ -31,7 +71,7 @@ def get_available_packages_at_location(location):
     return [p for p in st.session_state.packages 
             if p["pickup"] == location and p["status"] == "waiting"]
             
-def pickup_package(package_id):
+def pickup_package_by_id(package_id):
     """Pick up a package by ID (for use in UI)"""
     current_location = st.session_state.current_route[-1] if st.session_state.current_route else None
     if not current_location:
@@ -97,29 +137,45 @@ def get_package_statistics():
     return stats
 
 def add_random_package():
-    """Add a new random package during gameplay"""
+    """Add a new random package during gameplay that doesn't conflict with constraints"""
     next_id = max([p["id"] for p in st.session_state.packages], default=0) + 1
-    locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
     
-    pickup = random.choice(locations)
-    delivery_options = [loc for loc in locations if loc != pickup]
-    delivery = random.choice(delivery_options)
+    # Define valid combinations that don't conflict with constraints
+    valid_combinations = [
+        ("Factory", "DHL Hub"),
+        ("Factory", "Residence"),
+        ("DHL Hub", "Factory"),
+        ("DHL Hub", "Shop"),
+        ("Shop", "DHL Hub"),
+        ("Shop", "Factory"),
+        ("Shop", "Residence"),
+        ("Residence", "Factory"),
+        ("Residence", "Shop")
+    ]
     
+    # Pick a random valid combination
+    pickup, delivery = random.choice(valid_combinations)
+    
+    # Random icon
+    icons = ["🛒", "🎁", "📚", "📱", "🧸", "🧳", "🎮", "💻", "🎵", "🧴"]
+    
+    # Create the new package
     new_package = {
         "id": next_id,
         "pickup": pickup,
         "delivery": delivery,
         "status": "waiting",
-        "icon": random.choice(["📦", "📱", "🛒", "🎁", "📚"])
+        "icon": random.choice(icons),
+        "description": f"Package from {pickup} to {delivery}"
     }
     
     st.session_state.packages.append(new_package)
     st.session_state.total_packages += 1
-    st.info(f"New package #{next_id} is available for pickup at {pickup}!")
+    st.info(f"New package #{next_id} ({new_package['icon']}) is available for pickup at {pickup}!")
     return new_package
 
 def get_optimal_delivery_order():
-    """Determine the optimal order to deliver all packages"""
+    """Determine the optimal order to deliver all packages based on current position"""
     from routing import calculate_route_distance
     
     # Get list of packages waiting to be picked up
@@ -158,3 +214,84 @@ def get_optimal_delivery_order():
         waiting_packages = [p for p in waiting_packages if p["id"] != nearest_pickup["id"]]
     
     return optimal_order
+
+def get_package_route_impact():
+    """Analyze how packages affect the optimal route"""
+    # Get all unique locations involved in package pickups and deliveries
+    package_locations = set()
+    for pkg in st.session_state.packages:
+        package_locations.add(pkg["pickup"])
+        package_locations.add(pkg["delivery"])
+    
+    # Check if the two required packages force particular route segments
+    impact = {
+        "forced_segments": [],
+        "package_locations": list(package_locations),
+        "critical_packages": []
+    }
+    
+    # Factory to Shop package creates a forced segment
+    factory_to_shop = next((p for p in st.session_state.packages 
+                           if p["pickup"] == "Factory" and p["delivery"] == "Shop"), None)
+    if factory_to_shop:
+        impact["forced_segments"].append(("Factory", "Shop"))
+        impact["critical_packages"].append(factory_to_shop)
+    
+    # DHL Hub to Residence package creates a forced segment
+    dhl_to_residence = next((p for p in st.session_state.packages 
+                            if p["pickup"] == "DHL Hub" and p["delivery"] == "Residence"), None)
+    if dhl_to_residence:
+        impact["forced_segments"].append(("DHL Hub", "Residence"))
+        impact["critical_packages"].append(dhl_to_residence)
+    
+    return impact
+
+def get_package_hints():
+    """Generate helpful hints about package delivery strategy"""
+    if not st.session_state.packages:
+        return []
+        
+    hints = []
+    
+    # Check if player is carrying a package
+    if st.session_state.current_package:
+        pkg = st.session_state.current_package
+        hints.append(f"You're carrying a package to {pkg['delivery']}. Head there next.")
+        
+        # Check if there's a road closure blocking direct delivery
+        current_loc = st.session_state.current_route[-1] if st.session_state.current_route else None
+        if current_loc and is_road_closed(current_loc, pkg['delivery']):
+            hints.append(f"The direct route to {pkg['delivery']} is closed. Try going through Central Hub.")
+    else:
+        # Suggest picking up specific packages based on location
+        current_loc = st.session_state.current_route[-1] if st.session_state.current_route else None
+        if current_loc:
+            packages_here = get_available_packages_at_location(current_loc)
+            if packages_here:
+                hints.append(f"There are {len(packages_here)} packages to pick up at your current location.")
+            
+            # Suggest nearest pickup location
+            if not packages_here:
+                nearest_pickup = None
+                min_distance = float('inf')
+                
+                for pkg in st.session_state.packages:
+                    if pkg["status"] == "waiting":
+                        from routing import get_distance
+                        dist = get_distance(current_loc, pkg["pickup"])
+                        if dist < min_distance:
+                            min_distance = dist
+                            nearest_pickup = pkg["pickup"]
+                
+                if nearest_pickup:
+                    hints.append(f"The nearest package pickup is at {nearest_pickup}.")
+    
+    # General strategic advice
+    if len(st.session_state.delivered_packages) == 0 and len(st.session_state.packages) > 0:
+        hints.append("Focus on delivering the Factory→Shop and DHL Hub→Residence packages first to satisfy constraints.")
+    
+    # Optimize route
+    if len(st.session_state.packages) - len(st.session_state.delivered_packages) > 1:
+        hints.append("Try to plan a route that lets you pick up and deliver multiple packages efficiently.")
+    
+    return hints
