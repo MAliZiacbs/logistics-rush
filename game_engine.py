@@ -15,6 +15,9 @@ def start_new_game():
     
     st.session_state.current_package = None
     st.session_state.delivered_packages = []
+    st.session_state.current_route = []
+    st.session_state.optimal_route = None
+    st.session_state.optimal_path = None
     
     locations_to_visit = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
     start_location = "Factory"
@@ -36,9 +39,9 @@ def start_new_game():
         expanded_locations = locations_to_visit + ["Central Hub"]
         optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, expanded_locations)
         if optimal_route is None:
-            st.error("No feasible route found even with Central Hub. Please reset road closures and try again.")
-            st.session_state.game_active = False
-            return
+            st.error("No feasible route found even with Central Hub. Resetting road closures.")
+            st.session_state.closed_roads = []  # Reset closures as a last resort
+            optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
 
     st.session_state.current_route = [start_location]
     st.session_state.optimal_route = optimal_route

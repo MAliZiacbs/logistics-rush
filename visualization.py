@@ -40,16 +40,17 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
             fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
    
     # Optimal route (using optimal_path)
-    if optimal_route and len(optimal_route) > 1:
-        route_x = [LOCATIONS[loc]["position"][0] for loc in optimal_route]
-        route_y = [LOCATIONS[loc]["position"][1] for loc in optimal_route]
+    if optimal_route and len(st.session_state.optimal_path) > 1:
+        route_x = [LOCATIONS[loc]["position"][0] for loc in st.session_state.optimal_path]
+        route_y = [LOCATIONS[loc]["position"][1] for loc in st.session_state.optimal_path]
         fig.add_trace(go.Scatter(x=route_x, y=route_y, mode='lines', line=dict(color='#0466c8', width=5), opacity=0.3, showlegend=False))
         fig.add_trace(go.Scatter(x=route_x, y=route_y, mode='lines+markers', line=dict(color='#0466c8', width=3, dash='dash'), marker=dict(size=7, color='#0466c8', symbol='circle', line=dict(color='#ffffff', width=1)), name='Optimal Route'))
-        for i, action in enumerate(st.session_state.optimal_route):  # Use st.session_state.optimal_route for actions
+        for i, loc in enumerate(st.session_state.optimal_path):
+            action = next((a for a in st.session_state.optimal_route if a["location"] == loc), None)
             label = chr(65 + i)
-            if action["action"] == "pickup":
+            if action and action["action"] == "pickup":
                 label += f" P{action['package_id']}"
-            elif action["action"] == "deliver":
+            elif action and action["action"] == "deliver":
                 label += f" D{action['package_id']}"
             fig.add_annotation(x=route_x[i] - 30, y=route_y[i] - 30, text=label, showarrow=False, font=dict(size=12, color="#ffffff"), bgcolor="#0466c8", borderpad=3, opacity=0.9)
    
@@ -241,7 +242,7 @@ def render_game_results():
     with cc2:
         st.markdown("**Optimal Route:**")
         if st.session_state.completed_routes["optimal"] and len(st.session_state.completed_routes["optimal"]) > 1:
-            optimal_actions = st.session_state.optimal_route  # Actions for display
+            optimal_actions = st.session_state.optimal_route
             route_text = " → ".join(st.session_state.completed_routes["optimal"])
             action_labels = []
             for i, loc in enumerate(st.session_state.completed_routes["optimal"]):

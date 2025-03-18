@@ -113,8 +113,27 @@ def solve_tsp(start_location, locations):
                 best_route = action_route.copy()
                 best_path = full_path
 
+    # Fallback: If no route found, try a minimal path through Central Hub
     if best_route is None:
-        return None, None, float('inf')  # Return three values even in failure case
+        st.warning(f"No optimal route found with current closures: {st.session_state.closed_roads}")
+        fallback_route = [
+            {"location": start_location, "action": "visit", "package_id": None},
+            {"location": "Central Hub", "action": "visit", "package_id": None},
+        ]
+        for loc in ordered_locations:
+            if loc != start_location:
+                fallback_route.append({"location": loc, "action": "visit", "package_id": None})
+        fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
+        full_path, distance = calculate_route_distance(fallback_route)
+        if full_path and distance != float('inf'):
+            best_route = fallback_route
+            best_path = full_path
+            min_distance = distance
+        else:
+            return None, None, float('inf')
+
+    if best_route is None:
+        return None, None, float('inf')
     return best_route, best_path, min_distance
 
 def get_nearest_accessible_location(current_location):
