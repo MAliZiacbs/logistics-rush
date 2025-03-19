@@ -15,15 +15,18 @@ def get_distance(loc1, loc2):
     else:
         return float('inf')
 
-def find_detour(from_loc, to_loc, via_loc="Central Hub"):
-    """Find a detour route when direct path is closed"""
+def find_detour(from_loc, to_loc):
+    """Find a detour route when direct path is closed (no Central Hub fallback)"""
     if not is_road_closed(from_loc, to_loc):
         return [from_loc, to_loc], get_distance(from_loc, to_loc)
-    if is_road_closed(from_loc, via_loc) or is_road_closed(via_loc, to_loc):
-        return None, float('inf')
-    detour_distance = get_distance(from_loc, via_loc) + get_distance(via_loc, to_loc)
-    detour_route = [from_loc, via_loc, to_loc]
-    return detour_route, detour_distance
+    # Try all possible intermediate nodes (excluding from_loc and to_loc)
+    for via_loc in LOCATIONS:
+        if via_loc != from_loc and via_loc != to_loc:
+            if not is_road_closed(from_loc, via_loc) and not is_road_closed(via_loc, to_loc):
+                detour_distance = get_distance(from_loc, via_loc) + get_distance(via_loc, to_loc)
+                if detour_distance != float('inf'):
+                    return [from_loc, via_loc, to_loc], detour_distance
+    return None, float('inf')
 
 def calculate_segment_path(from_loc, to_loc):
     """Calculate the path and distance between two locations, using detour if needed"""
@@ -162,13 +165,14 @@ def suggest_next_location(current_location, visited_locations, packages):
         segment_path, _ = calculate_segment_path(current_location, delivery_loc)
         if segment_path:
             return delivery_loc, "delivery"
-        segment_path, _ = calculate_segment_path(current_location, "Central Hub")
-        if segment_path:
-            return "Central Hub", "detour"
+        # No Central Hub detour; try any accessible location
+        nearest = get_nearest_accessible_location(current_location)
+        if nearest:
+            return nearest, "detour"
     available_pickups = [p for p in packages if p["pickup"] == current_location and p["status"] == "waiting"]
     if available_pickups and not st.session_state.current_package:
         return current_location, "pickup"
-    main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
+    main_locations = list(LOCATIONS.keys())  # No Central Hub
     unvisited = [loc for loc in main_locations if loc not in visited_locations]
     if unvisited:
         accessible_unvisited = []
@@ -179,4 +183,6 @@ def suggest_next_location(current_location, visited_locations, packages):
         if accessible_unvisited:
             accessible_unvisited.sort(key=lambda x: x[1])
             return accessible_unvisited[0][0], "unvisited"
-    return "Central Hub", "default"
+    # Default to nearest accessible location if no specific action
+    nearest = get_nearest_accessible_location(current_location)
+    return nearest if nearest else current_location, "default"
