@@ -96,7 +96,8 @@ with tab1:
         if st.session_state.game_active:
             map_fig = visualize_map(
                 player_route=st.session_state.current_route,
-                constraints=st.session_state.constraints
+                constraints=st.session_state.constraints,
+                show_roads=True  # Show roads during gameplay
             )
         elif st.session_state.game_results:
             # Add checks to ensure all components exist before visualization
@@ -109,10 +110,11 @@ with tab1:
             map_fig = visualize_map(
                 player_route=player_route,
                 optimal_route=optimal_route,
-                constraints=st.session_state.constraints
+                constraints=st.session_state.constraints,
+                show_roads=False  # Hide roads for cleaner results view
             )
         else:
-            map_fig = visualize_map()
+            map_fig = visualize_map(show_roads=True)
         st.plotly_chart(map_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
