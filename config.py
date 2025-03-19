@@ -1,43 +1,34 @@
 # config.py
 
-# Locations with their visual properties
+# Locations with their visual properties (Central Hub removed)
 LOCATIONS = {
     "Factory": {"position": (100, 100), "color": "#f87171", "emoji": "🏭"},
     "DHL Hub": {"position": (700, 100), "color": "#fbbf24", "emoji": "🚚"},
     "Shop": {"position": (700, 300), "color": "#60a5fa", "emoji": "🏪"},
     "Residence": {"position": (100, 300), "color": "#a78bfa", "emoji": "🏠"},
-    "Central Hub": {"position": (400, 200), "color": "#374151", "emoji": "🔄"}
 }
 
-# Define all possible road segments
+# Define all possible road segments (no Central Hub)
 ROAD_SEGMENTS = [
     ("Factory", "DHL Hub"),
     ("Factory", "Shop"),
     ("Factory", "Residence"),
-    ("Factory", "Central Hub"),
     ("DHL Hub", "Shop"),
     ("DHL Hub", "Residence"),
-    ("DHL Hub", "Central Hub"),
     ("Shop", "Residence"),
-    ("Shop", "Central Hub"),
-    ("Residence", "Central Hub"),
 ]
 
-# Simplified graph of distances between locations
+# Simplified graph of distances between locations (no Central Hub)
 DISTANCES = {
     ("Factory", "DHL Hub"): 3.0,
     ("Factory", "Shop"): 4.5,
     ("Factory", "Residence"): 2.0,
-    ("Factory", "Central Hub"): 2.0,
     ("DHL Hub", "Shop"): 2.0,
     ("DHL Hub", "Residence"): 4.5,
-    ("DHL Hub", "Central Hub"): 2.0,
     ("Shop", "Residence"): 3.0,
-    ("Shop", "Central Hub"): 2.0,
-    ("Residence", "Central Hub"): 2.0,
 }
 
-# Game modes with clear descriptions - now just a single, combined mode
+# Game modes with clear descriptions - unchanged
 GAME_MODES = {
     "Logistics Challenge": {
         "description": "Master all logistics challenges in one comprehensive experience",
@@ -54,7 +45,7 @@ GAME_MODES = {
     }
 }
 
-# Scoring weights for the unified game mode
+# Scoring weights for the unified game mode - unchanged
 SCORING_WEIGHTS = {
     "Logistics Challenge": {
         "efficiency": 0.4,
@@ -64,7 +55,7 @@ SCORING_WEIGHTS = {
     }
 }
 
-# CSS styles for the application (consolidated version)
+# CSS styles for the application (unchanged for now, though Central Hub references could be removed if needed)
 STYLES = """
 <style>
     .main-title {
@@ -177,10 +168,11 @@ STYLES = """
 </style>
 """
 
-# Centralized constraint checking function
+# Centralized constraint checking function - unchanged
 def check_constraints(route):
     """
-    Check if a route follows the game's sequence constraints.
+    Check if a route follows the game'sರ
+
     Returns True if constraints are met, False otherwise.
     """
     # Factory must come before Shop

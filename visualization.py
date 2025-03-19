@@ -10,15 +10,7 @@ from feature_packages import get_available_packages_at_location, get_package_hin
 from game_engine import process_location_checkin, pickup_package, get_game_status, get_completion_summary
 
 def visualize_map(player_route=None, optimal_route=None, constraints=None, show_roads=True, route_type="both"):
-    """Create a clean, professional visual map with improved route display.
-    
-    Parameters:
-    - player_route: List of locations visited by the player
-    - optimal_route: List of optimal locations to visit
-    - constraints: Dictionary of constraints for each location
-    - show_roads: Whether to show roads (set to False for result visualization)
-    - route_type: Which route to show - "both", "player", or "optimal"
-    """
+    """Create a clean, professional visual map with improved route display."""
     fig = go.Figure()
     
     # Background grid and styling
@@ -31,65 +23,40 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         fig.add_shape(type="line", x0=0, y0=i, x1=800, y1=i, 
                       line=dict(color="rgba(0, 80, 40, 0.1)", width=1), layer="below")
     
-    # Only draw road segments if show_roads is True
+    # Draw road segments if show_roads is True
     if show_roads:
-        for location, details in LOCATIONS.items():
-            if location != "Central Hub":
-                road_closed = is_road_closed(location, "Central Hub")
-                fig.add_shape(type="line", x0=LOCATIONS["Central Hub"]["position"][0], 
-                              y0=LOCATIONS["Central Hub"]["position"][1], x1=details["position"][0], 
-                              y1=details["position"][1], 
-                              line=dict(color="#555555" if not road_closed else "#ff0000", width=8, 
-                                        dash="dot" if road_closed else None), layer="below")
-                if not road_closed:
-                    fig.add_shape(type="line", x0=LOCATIONS["Central Hub"]["position"][0], 
-                                  y0=LOCATIONS["Central Hub"]["position"][1], x1=details["position"][0], 
-                                  y1=details["position"][1], 
-                                  line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
-        locations_list = ["Factory", "DHL Hub", "Shop", "Residence", "Factory"]
-        for i in range(len(locations_list) - 1):
-            loc1, loc2 = locations_list[i], locations_list[i + 1]
+        for loc1, loc2 in ROAD_SEGMENTS:
             road_closed = is_road_closed(loc1, loc2)
-            fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], 
-                          x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], 
+            fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], 
+                          y0=LOCATIONS[loc1]["position"][1], 
+                          x1=LOCATIONS[loc2]["position"][0], 
+                          y1=LOCATIONS[loc2]["position"][1], 
                           line=dict(color="#555555" if not road_closed else "#ff0000", width=6, 
                                     dash="dot" if road_closed else None), layer="below")
             if not road_closed:
-                fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], 
-                              x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], 
-                              line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
-        diagonals = [("Factory", "Shop"), ("DHL Hub", "Residence")]
-        for loc1, loc2 in diagonals:
-            road_closed = is_road_closed(loc1, loc2)
-            fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], 
-                          x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], 
-                          line=dict(color="#555555" if not road_closed else "#ff0000", width=4, 
-                                    dash="dot" if road_closed else None), layer="below")
-            if not road_closed:
-                fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], y0=LOCATIONS[loc1]["position"][1], 
-                              x1=LOCATIONS[loc2]["position"][0], y1=LOCATIONS[loc2]["position"][1], 
+                fig.add_shape(type="line", x0=LOCATIONS[loc1]["position"][0], 
+                              y0=LOCATIONS[loc1]["position"][1], 
+                              x1=LOCATIONS[loc2]["position"][0], 
+                              y1=LOCATIONS[loc2]["position"][1], 
                               line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
 
-    # User Route: Solid line with hover info - make it more prominent in results view
-    line_width = 6 if not show_roads else 4  # Thicker line when showing results
+    # User Route: Solid line with hover info
+    line_width = 6 if not show_roads else 4
     if player_route and len(player_route) > 1 and (route_type == "both" or route_type == "player"):
         route_x = [LOCATIONS[loc]["position"][0] for loc in player_route]
         route_y = [LOCATIONS[loc]["position"][1] for loc in player_route]
         hover_text = [f"Step {i+1}: {loc}" for i, loc in enumerate(player_route)]
         
-        # Add arrows to show direction for player route
         for i in range(len(player_route) - 1):
             x0, y0 = LOCATIONS[player_route[i]]["position"]
             x1, y1 = LOCATIONS[player_route[i+1]]["position"]
             dx, dy = x1 - x0, y1 - y0
             length = np.sqrt(dx**2 + dy**2)
-            dx, dy = dx / length, dy / length  # Normalize
+            dx, dy = dx / length, dy / length
             
-            # Calculate arrow position (80% of the way)
             arrow_x = x0 + dx * length * 0.8
             arrow_y = y0 + dy * length * 0.8
             
-            # Add arrow annotation
             fig.add_annotation(
                 x=arrow_x, y=arrow_y,
                 ax=arrow_x - dx * 15, ay=arrow_y - dy * 15,
@@ -98,7 +65,6 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 arrowcolor="#e63946"
             )
             
-            # Add step number at midpoint
             mid_x = (x0 + x1) / 2
             mid_y = (y0 + y1) / 2
             fig.add_annotation(
@@ -128,24 +94,20 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         len(st.session_state.optimal_path) > 1 and
         (route_type == "both" or route_type == "optimal")):
         
-        # Draw a cleaner optimal path
         opt_route_x = [LOCATIONS[loc]["position"][0] for loc in st.session_state.optimal_path]
         opt_route_y = [LOCATIONS[loc]["position"][1] for loc in st.session_state.optimal_path]
         hover_text = [f"Step {chr(65+i)}: {loc}" for i, loc in enumerate(st.session_state.optimal_path)]
         
-        # Add arrows to show direction for optimal route
         for i in range(len(st.session_state.optimal_path) - 1):
             x0, y0 = LOCATIONS[st.session_state.optimal_path[i]]["position"]
             x1, y1 = LOCATIONS[st.session_state.optimal_path[i+1]]["position"]
             dx, dy = x1 - x0, y1 - y0
             length = np.sqrt(dx**2 + dy**2)
-            dx, dy = dx / length, dy / length  # Normalize
+            dx, dy = dx / length, dy / length
             
-            # Calculate arrow position (80% of the way)
             arrow_x = x0 + dx * length * 0.8
             arrow_y = y0 + dy * length * 0.8
             
-            # Add arrow annotation
             fig.add_annotation(
                 x=arrow_x, y=arrow_y,
                 ax=arrow_x - dx * 15, ay=arrow_y - dy * 15,
@@ -154,7 +116,6 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 arrowcolor="#0466c8"
             )
             
-            # Add step letter at midpoint
             mid_x = (x0 + x1) / 2
             mid_y = (y0 + y1) / 2
             fig.add_annotation(
@@ -178,64 +139,51 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             name='Optimal Route', hoverinfo='text', hovertext=hover_text
         ))
 
-    # Central Hub
-    central_hub = LOCATIONS["Central Hub"]
-    fig.add_shape(type="rect", x0=central_hub["position"][0] - 50, y0=central_hub["position"][1] - 50, 
-                  x1=central_hub["position"][0] + 50, y1=central_hub["position"][1] + 50, 
-                  fillcolor="#333333", line=dict(color="#ffffff", width=2))
-    fig.add_annotation(x=central_hub["position"][0], y=central_hub["position"][1], text="CENTRAL<br>HUB", 
-                       showarrow=False, font=dict(size=14, color="#ffffff", family="Arial"))
-
-    # Location markers and package indicators
+    # Location markers and package indicators (no Central Hub)
     for location, details in LOCATIONS.items():
-        if location != "Central Hub":
-            r = 40
-            cx, cy = details["position"]
-            hexagon_points = [(cx + r * np.cos((np.pi / 3) * i), cy + r * np.sin((np.pi / 3) * i)) for i in range(6)]
-            path = f"M {hexagon_points[0][0]},{hexagon_points[0][1]} " + " ".join(f"L {x},{y}" for x, y in hexagon_points[1:]) + " Z"
-            highlight_color = details["color"]
-            
-            # Only highlight packages in game mode, not results mode
-            if show_roads:
-                has_pickup = any(pkg["pickup"] == location and pkg["status"] == "waiting" for pkg in st.session_state.packages)
-                has_delivery = st.session_state.current_package and st.session_state.current_package["delivery"] == location
-                if has_pickup:
-                    highlight_color = "#10B981"
-                elif has_delivery:
-                    highlight_color = "#3B82F6"
-            
-            # Don't show constraint lines in results view
-            if constraints and location in constraints and show_roads:
-                fig.add_shape(type="path", path=path, fillcolor="rgba(0,0,0,0)", 
-                              line=dict(color="#6366F1", width=4))
-            
-            fig.add_shape(type="path", path=path, fillcolor=highlight_color, 
-                          line=dict(color="#ffffff", width=2))
-            fig.add_annotation(x=details["position"][0], y=details["position"][1], text=f"{location}", 
-                               showarrow=False, font=dict(size=12, color="#ffffff", family="Arial", weight="bold"))
-            fig.add_annotation(x=details["position"][0], y=details["position"][1] - 15, text=f"{details['emoji']}", 
-                               showarrow=False, font=dict(size=20))
-            
-            # Only show constraints and packages in game mode, not results mode
-            if show_roads:
-                if constraints and location in constraints:
-                    fig.add_annotation(x=details["position"][0], y=details["position"][1] + 55, 
-                                       text=constraints[location], showarrow=False, 
-                                       font=dict(size=10, color="#333333"), bgcolor="rgba(255,255,255,0.8)", 
-                                       bordercolor="#6366F1", borderwidth=1, borderpad=3)
-                pending_packages = [p for p in st.session_state.packages if p["pickup"] == location and p["status"] == "waiting"]
-                for i, pkg in enumerate(pending_packages[:3]):
-                    fig.add_annotation(x=details["position"][0], y=details["position"][1] - 50 - (i * 20), 
-                                       text=f"{pkg['icon']} #{pkg['id']}", showarrow=False, font=dict(size=16), 
-                                       bgcolor="rgba(255,255,255,0.8)", bordercolor="#10B981", borderwidth=2, borderpad=3)
+        r = 40
+        cx, cy = details["position"]
+        hexagon_points = [(cx + r * np.cos((np.pi / 3) * i), cy + r * np.sin((np.pi / 3) * i)) for i in range(6)]
+        path = f"M {hexagon_points[0][0]},{hexagon_points[0][1]} " + " ".join(f"L {x},{y}" for x, y in hexagon_points[1:]) + " Z"
+        highlight_color = details["color"]
+        
+        if show_roads:
+            has_pickup = any(pkg["pickup"] == location and pkg["status"] == "waiting" for pkg in st.session_state.packages)
+            has_delivery = st.session_state.current_package and st.session_state.current_package["delivery"] == location
+            if has_pickup:
+                highlight_color = "#10B981"
+            elif has_delivery:
+                highlight_color = "#3B82F6"
+        
+        if constraints and location in constraints and show_roads:
+            fig.add_shape(type="path", path=path, fillcolor="rgba(0,0,0,0)", 
+                          line=dict(color="#6366F1", width=4))
+        
+        fig.add_shape(type="path", path=path, fillcolor=highlight_color, 
+                      line=dict(color="#ffffff", width=2))
+        fig.add_annotation(x=details["position"][0], y=details["position"][1], text=f"{location}", 
+                           showarrow=False, font=dict(size=12, color="#ffffff", family="Arial", weight="bold"))
+        fig.add_annotation(x=details["position"][0], y=details["position"][1] - 15, text=f"{details['emoji']}", 
+                           showarrow=False, font=dict(size=20))
+        
+        if show_roads:
+            if constraints and location in constraints:
+                fig.add_annotation(x=details["position"][0], y=details["position"][1] + 55, 
+                                   text=constraints[location], showarrow=False, 
+                                   font=dict(size=10, color="#333333"), bgcolor="rgba(255,255,255,0.8)", 
+                                   bordercolor="#6366F1", borderwidth=1, borderpad=3)
+            pending_packages = [p for p in st.session_state.packages if p["pickup"] == location and p["status"] == "waiting"]
+            for i, pkg in enumerate(pending_packages[:3]):
+                fig.add_annotation(x=details["position"][0], y=details["position"][1] - 50 - (i * 20), 
+                                   text=f"{pkg['icon']} #{pkg['id']}", showarrow=False, font=dict(size=16), 
+                                   bgcolor="rgba(255,255,255,0.8)", bordercolor="#10B981", borderwidth=2, borderpad=3)
 
     # Additional annotations
     if show_roads and st.session_state.closed_roads:
-        fig.add_annotation(x=150, y=40, text="⛔️ ROAD CLOSURES", showarrow=False, 
+        fig.add_annotation(x=150, y=40, text="⛔️ ROAD CLOSURE", showarrow=False, 
                            font=dict(size=12, color="#EF4444", weight="bold"), 
                            bgcolor="rgba(255,255,255,0.8)", borderpad=3)
     
-    # Show map title based on route type
     if not show_roads:
         if route_type == "player":
             fig.add_annotation(x=400, y=40, text="YOUR ROUTE", showarrow=False, 
@@ -255,7 +203,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
 
     # Layout settings
     fig.update_layout(
-        height=400 if not show_roads else 500,  # Slightly smaller maps for the split view
+        height=400 if not show_roads else 500,
         showlegend=True, 
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, 
                     bgcolor="rgba(255,255,255,0.8)", bordercolor="#cccccc", borderwidth=1),
@@ -287,11 +235,7 @@ def render_action_controls():
                 result = process_location_checkin(loc)
                 if result:
                     st.rerun()
-    btn_type = "primary" if st.session_state.current_route and suggest_next_location(st.session_state.current_route[-1], st.session_state.current_route, st.session_state.packages)[0] == "Central Hub" else "secondary"
-    if st.button(f"{LOCATIONS['Central Hub']['emoji']} Central Hub", key="btn_central", type=btn_type, use_container_width=True):
-        result = process_location_checkin("Central Hub")
-        if result:
-            st.rerun()
+    # Removed Central Hub button
     if st.session_state.current_route:
         current_loc = st.session_state.current_route[-1]
         pickups = get_available_packages_at_location(current_loc)
@@ -313,7 +257,7 @@ def render_game_info():
         st.markdown('</div>', unsafe_allow_html=True)
     with st.expander("Game Info", expanded=True):
         if st.session_state.closed_roads:
-            st.markdown('<div class="road-closure-alert">⛔️ Road Closures:</div>', unsafe_allow_html=True)
+            st.markdown('<div class="road-closure-alert">⛔️ Road Closure:</div>', unsafe_allow_html=True)
             closures_text = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in st.session_state.closed_roads])
             st.markdown(closures_text)
         st.markdown('<div class="package-info">', unsafe_allow_html=True)
@@ -393,7 +337,7 @@ def render_game_results():
     st.markdown(f"**Sequence Constraints:** {'✅ Met' if constraints_followed else '❌ Not Met'}")
     
     if st.session_state.closed_roads:
-        st.markdown("**Road Closures Navigated:**")
+        st.markdown("**Road Closure Navigated:**")
         for road in st.session_state.closed_roads:
             st.markdown(f"⛔️ {road[0]} ↔️ {road[1]}")
 
@@ -419,7 +363,7 @@ def render_game_results():
             route_text = " → ".join(action_labels)
             st.code(route_text)
         else:
-            st.markdown("*No optimal route available due to road closures.*")
+            st.markdown("*No optimal route available due to road closure.*")
 
     if st.button("Play Again", use_container_width=True):
         st.session_state.game_results = None

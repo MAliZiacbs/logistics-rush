@@ -15,11 +15,11 @@ def start_new_game():
     
     st.session_state.current_package = None
     st.session_state.delivered_packages = []
-    st.session_state.current_route = []
+    st.session_state.current_route = ["Factory"]  # Start at Factory
     st.session_state.optimal_route = None
     st.session_state.optimal_path = None
     
-    locations_to_visit = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
+    locations_to_visit = list(LOCATIONS.keys())  # No Central Hub
     start_location = "Factory"
 
     st.session_state.constraints = {
@@ -29,18 +29,17 @@ def start_new_game():
         "Residence": "Must visit after DHL Hub"
     }
     
-    st.session_state.closed_roads = generate_road_closures(num_closures=2)
+    st.session_state.closed_roads = generate_road_closures(num_closures=1)
     st.session_state.packages = generate_packages(num_packages=3)
     st.session_state.total_packages = len(st.session_state.packages)
 
     # Try to find an optimal route
     optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
     if optimal_route is None:
-        st.warning("Optimal route calculation failed. Using fallback route via Central Hub.")
+        st.warning("Optimal route calculation failed. Using fallback route starting from Factory.")
         # Fallback route ensuring all locations are visited
         fallback_route = [
-            {"location": start_location, "action": "visit", "package_id": None},
-            {"location": "Central Hub", "action": "visit", "package_id": None}
+            {"location": start_location, "action": "visit", "package_id": None}
         ]
         for loc in locations_to_visit:
             if loc != start_location:
@@ -49,9 +48,8 @@ def start_new_game():
         optimal_path, optimal_distance = calculate_route_distance(fallback_route)
         optimal_route = fallback_route
 
-    st.session_state.current_route = [start_location]
     st.session_state.optimal_route = optimal_route
-    st.session_state.optimal_path = optimal_path if optimal_path else [start_location]
+    st.session_state.optimal_path = optimal_path if optimal_path else ["Factory"]
 
 def process_location_checkin(location):
     """Process a player checking in at a location"""
@@ -86,7 +84,7 @@ def process_location_checkin(location):
 
     st.session_state.current_route.append(location)
     
-    main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
+    main_locations = list(LOCATIONS.keys())  # No Central Hub
     all_locations_visited = all(loc in st.session_state.current_route for loc in main_locations)
     all_packages_delivered = len(st.session_state.delivered_packages) == st.session_state.total_packages
     
@@ -112,8 +110,8 @@ def get_game_status():
         return None
         
     game_time = time.time() - st.session_state.start_time
-    loc_visited = len(set([loc for loc in st.session_state.current_route if loc != "Central Hub"]))
-    total_loc = len([loc for loc in LOCATIONS.keys() if loc != "Central Hub"])
+    loc_visited = len(set(st.session_state.current_route))
+    total_loc = len(LOCATIONS)
     loc_progress = min(100, int((loc_visited / total_loc) * 100))
     pkg_progress = min(100, int((len(st.session_state.delivered_packages) / max(1, st.session_state.total_packages)) * 100))
     combined_progress = (loc_progress + pkg_progress) // 2
@@ -209,7 +207,7 @@ def get_completion_summary():
     if not st.session_state.game_active:
         return None
         
-    main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
+    main_locations = list(LOCATIONS.keys())  # No Central Hub
     visited_locations = [loc for loc in main_locations if loc in st.session_state.current_route]
     remaining_locations = [loc for loc in main_locations if loc not in st.session_state.current_route]
     delivered_packages = len(st.session_state.delivered_packages)

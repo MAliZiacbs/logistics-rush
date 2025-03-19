@@ -8,7 +8,7 @@ import os
 import json
 
 # Import our modules
-from config import LOCATIONS, GAME_MODES, STYLES, check_constraints  # Updated import
+from config import LOCATIONS, GAME_MODES, STYLES, check_constraints
 from game_engine import start_new_game, process_location_checkin, get_game_status
 from visualization import visualize_map, render_action_controls, render_game_info, render_game_results
 from data_management import save_player_data, export_player_data, reset_leaderboard, reset_all_data
@@ -97,37 +97,32 @@ with tab1:
             map_fig = visualize_map(
                 player_route=st.session_state.current_route,
                 constraints=st.session_state.constraints,
-                show_roads=True  # Show roads during gameplay
+                show_roads=True
             )
             st.plotly_chart(map_fig, use_container_width=True)
         elif st.session_state.game_results:
-            # Add checks to ensure all components exist before visualization
             has_player_route = "completed_routes" in st.session_state and "player" in st.session_state.completed_routes
             has_optimal_route = "completed_routes" in st.session_state and "optimal" in st.session_state.completed_routes
             
             player_route = st.session_state.completed_routes.get("player", []) if has_player_route else []
             optimal_route = st.session_state.completed_routes.get("optimal", []) if has_optimal_route else []
             
-            # Create two separate visualizations
             st.markdown("### Route Comparison")
             
-            # Player Route Map
             player_map = visualize_map(
                 player_route=player_route,
                 constraints=st.session_state.constraints,
-                show_roads=False,  # Hide roads for cleaner results view
-                route_type="player"  # Show only player route
+                show_roads=False,
+                route_type="player"
             )
             
-            # Optimal Route Map
             optimal_map = visualize_map(
                 optimal_route=optimal_route,
                 constraints=st.session_state.constraints,
-                show_roads=False,  # Hide roads for cleaner results view
-                route_type="optimal"  # Show only optimal route
+                show_roads=False,
+                route_type="optimal"
             )
             
-            # Show maps side by side
             map_col1, map_col2 = st.columns(2)
             with map_col1:
                 st.plotly_chart(player_map, use_container_width=True)
@@ -138,7 +133,7 @@ with tab1:
             st.plotly_chart(map_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Action Controls (Check In and Pickup Package) below map
+        # Action Controls below map
         if st.session_state.game_active:
             render_action_controls()
 
@@ -218,7 +213,7 @@ with tab3:
     ### Basic Gameplay
     1. **Register** with your details
     2. **Navigate** starting from the Factory
-    3. **Overcome** road closures
+    3. **Overcome** road closures (limited to 1)
     4. **Deliver** packages while following constraints
     5. **Complete** to see your score
     """)

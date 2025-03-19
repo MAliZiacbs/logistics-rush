@@ -2,7 +2,7 @@ import streamlit as st
 import random
 import networkx as nx
 
-from config import LOCATIONS, ROAD_SEGMENTS, DISTANCES  # Added DISTANCES import
+from config import LOCATIONS, ROAD_SEGMENTS, DISTANCES
 
 def is_road_closed(loc1, loc2):
     """Check if a road between two locations is closed"""
@@ -10,8 +10,8 @@ def is_road_closed(loc1, loc2):
         return False
     return (loc1, loc2) in st.session_state.closed_roads or (loc2, loc1) in st.session_state.closed_roads
 
-def generate_road_closures(num_closures=2):
-    """Generate random road closures, ensuring the graph remains connected and playable"""
+def generate_road_closures(num_closures=1):
+    """Generate 1 random road closure, ensuring the graph remains connected"""
     road_segments = ROAD_SEGMENTS.copy()
     closed_roads = []
     
@@ -22,29 +22,21 @@ def generate_road_closures(num_closures=2):
     for road in road_segments:
         G.add_edge(road[0], road[1])
     
-    # Ensure Central Hub remains connected to all locations
-    critical_roads = [
-        ("Factory", "Central Hub"), ("Central Hub", "Factory"),
-        ("DHL Hub", "Central Hub"), ("Central Hub", "DHL Hub"),
-        ("Shop", "Central Hub"), ("Central Hub", "Shop"),
-        ("Residence", "Central Hub"), ("Central Hub", "Residence")
-    ]
-    available_roads = [road for road in road_segments if road not in critical_roads and (road[1], road[0]) not in critical_roads]
-    
-    # Randomly select and close roads while maintaining connectivity
+    # Randomly select and close one road while maintaining connectivity
+    available_roads = road_segments.copy()
     random.shuffle(available_roads)
     for road in available_roads:
         G.remove_edge(road[0], road[1])
         if nx.is_connected(G) and len(closed_roads) < num_closures:
             closed_roads.append(road)
-        else:
-            G.add_edge(road[0], road[1])  # Revert if it disconnects the graph
+            break  # Stop after 1 closure
+        G.add_edge(road[0], road[1])  # Revert if it disconnects the graph
     
     st.session_state.closed_roads = closed_roads
     return closed_roads
 
 def get_road_closure_impact():
-    """Calculate the impact of road closures on routing options"""
+    """Calculate berthe impact of road closures on routing options"""
     if not st.session_state.closed_roads:
         return None
         
@@ -79,7 +71,7 @@ def get_road_closure_impact():
 
 def add_random_closure():
     """Add a random road closure during gameplay, ensuring connectivity and constraints"""
-    if len(st.session_state.closed_roads) >= len(ROAD_SEGMENTS) - (len(LOCATIONS) - 1):
+    if len(st.session_state.closed_roads) >= 1:  # Limit to 1 closure
         return False
     
     available_roads = [road for road in ROAD_SEGMENTS 
@@ -95,16 +87,6 @@ def add_random_closure():
     
     random.shuffle(available_roads)
     for road in available_roads:
-        if (road[0] == "Factory" and road[1] == "Central Hub") or \
-           (road[0] == "Central Hub" and road[1] == "Factory") or \
-           (road[0] == "Shop" and road[1] == "Central Hub") or \
-           (road[0] == "Central Hub" and road[1] == "Shop") or \
-           (road[0] == "DHL Hub" and road[1] == "Central Hub") or \
-           (road[0] == "Central Hub" and road[1] == "DHL Hub") or \
-           (road[0] == "Residence" and road[1] == "Central Hub") or \
-           (road[0] == "Central Hub" and road[1] == "Residence"):
-            continue
-            
         G.remove_edge(road[0], road[1])
         if nx.is_connected(G):
             factory_to_shop = nx.has_path(G, "Factory", "Shop")
