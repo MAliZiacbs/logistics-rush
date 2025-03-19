@@ -69,19 +69,18 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 showlegend=(i == 0),
                 hoverinfo='text', hovertext=f"Step {i+1}: {player_route[i]} → {player_route[i+1]}"
             ))
-            # Add arrow (fixed direction and position)
+            # Add arrow
             dx, dy = x1 - x0, y1_offset - y0_offset
             length = np.sqrt(dx**2 + dy**2)
             if length > 0:  # Avoid division by zero
                 dx, dy = dx / length, dy / length
-                # Position the arrow near the end of the segment
-                arrow_x = x1 - dx * 15  # Tip of the arrow (near the end)
+                arrow_x = x1 - dx * 15
                 arrow_y = y1_offset - dy * 15
-                ref_x = x1 - dx * 25  # Reference point (slightly back from the tip)
+                ref_x = x1 - dx * 25
                 ref_y = y1_offset - dy * 25
                 fig.add_annotation(
-                    x=arrow_x, y=arrow_y,  # Tip of the arrow
-                    ax=ref_x, ay=ref_y,  # Reference point
+                    x=arrow_x, y=arrow_y,
+                    ax=ref_x, ay=ref_y,
                     xref="x", yref="y", axref="x", ayref="y",
                     showarrow=True, arrowhead=3, arrowsize=1, arrowwidth=1.5,
                     arrowcolor="#e63946"
@@ -124,7 +123,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 showlegend=(i == 0),
                 hoverinfo='text', hovertext=f"Step {i+1}: {st.session_state.optimal_path[i]} → {st.session_state.optimal_path[i+1]}"
             ))
-            # Add arrow (fixed direction and position)
+            # Add arrow
             dx, dy = x1 - x0, y1_offset - y0_offset
             length = np.sqrt(dx**2 + dy**2)
             if length > 0:
@@ -181,6 +180,15 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                            showarrow=False, font=dict(size=12, color="#ffffff", family="Arial", weight="bold"))
         fig.add_annotation(x=details["position"][0], y=details["position"][1] - 15, text=f"{details['emoji']}", 
                            showarrow=False, font=dict(size=20))
+        
+        # Add dotted black square around the current location during gameplay
+        if show_roads and player_route and location == player_route[-1]:
+            square_size = 50  # Slightly larger than the hexagon
+            fig.add_shape(type="rect",
+                          x0=cx - square_size, y0=cy - square_size,
+                          x1=cx + square_size, y1=cy + square_size,
+                          line=dict(color="black", width=2, dash="dot"),
+                          fillcolor="rgba(0,0,0,0)")
         
         if show_roads:
             if constraints and location in constraints:
