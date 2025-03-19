@@ -44,8 +44,15 @@ def calculate_route_distance(route):
         return None, 0  # Return full_path, distance
     total_distance = 0
     full_path = []
-    for i in range(len(route) - 1):
-        segment_path, segment_distance = calculate_segment_path(route[i]["location"], route[i+1]["location"])
+    
+    # Handle if route is a list of locations or a list of dicts
+    if isinstance(route[0], dict):
+        loc_route = [r["location"] for r in route]
+    else:
+        loc_route = route
+        
+    for i in range(len(loc_route) - 1):
+        segment_path, segment_distance = calculate_segment_path(loc_route[i], loc_route[i+1])
         if segment_distance == float('inf'):
             return None, float('inf')
         total_distance += segment_distance
@@ -61,88 +68,160 @@ def is_valid_route(route):
     return True
 
 def solve_tsp(start_location, locations):
-    """Solve TSP with Nearest Neighbor heuristic, handling packages and detours with backtracking"""
-    packages = st.session_state.packages
+    """Solve TSP considering packages and constraints, ensuring all locations are visited"""
+    packages = st.session_state.packages.copy()
     unvisited = locations.copy()
+    
+    # First, create a mandatory route that includes all package deliveries
+    # This ensures we create a route that can deliver all packages
+    required_segments = []
+    for pkg in packages:
+        required_segments.append((pkg["pickup"], pkg["delivery"]))
+    
+    # We need to make sure all locations are visited and all packages can be delivered
+    # Start building a route from the start location
     current_location = start_location
     action_route = [{"location": current_location, "action": "visit", "package_id": None}]
+    
+    # Keep track of packages that need to be handled
     packages_to_handle = {p["id"]: {"pickup": p["pickup"], "delivery": p["delivery"]} for p in packages}
     current_package = None
-    total_distance = 0
-    max_attempts = len(unvisited) * 2  # Limit backtracking attempts
-
-    attempt = 0
-    while unvisited or packages_to_handle and attempt < max_attempts:
+    visited = {start_location}
+    
+    # First priority: Ensure we visit all locations
+    while len(visited) < len(locations) or packages_to_handle:
         next_loc = None
         min_dist = float('inf')
-        # Prioritize package pickups if no package is held
+        
+        # Handle constraints: Factory must be visited before Shop
+        factory_constraint = "Factory" in visited or current_location == "Factory"
+        shop_constraint = "Shop" not in unvisited or factory_constraint
+        
+        # Handle constraints: DHL Hub must be visited before Residence
+        dhl_constraint = "DHL Hub" in visited or current_location == "DHL Hub"
+        residence_constraint = "Residence" not in unvisited or dhl_constraint
+        
+        # Priority 1: Pickup packages that can be delivered
         if not current_package:
             for loc in unvisited:
-                if any(pkg["pickup"] == loc and pkg["id"] in packages_to_handle for pkg in packages):
+                # Skip Shop if Factory hasn't been visited yet
+                if loc == "Shop" and not factory_constraint:
+                    continue
+                # Skip Residence if DHL Hub hasn't been visited yet
+                if loc == "Residence" and not dhl_constraint:
+                    continue
+                
+                # Check if this location has packages for pickup
+                has_pickup = any(pkg["pickup"] == loc and pkg["id"] in packages_to_handle for pkg in packages)
+                
+                if has_pickup:
                     _, dist = calculate_segment_path(current_location, loc)
                     if dist < min_dist:
                         min_dist = dist
                         next_loc = loc
+            
             if next_loc:
-                pickups = [pid for pid, pkg in packages_to_handle.items() if pkg["pickup"] == next_loc]
-                if pickups:
-                    pid = pickups[0]
-                    action_route.append({"location": next_loc, "action": "pickup", "package_id": pid})
-                    current_package = pid
-                    unvisited.remove(next_loc)
-                    _, segment_dist = calculate_segment_path(current_location, next_loc)
-                    total_distance += segment_dist
+                # Find a package to pick up
+                pickup_pkgs = [pkg for pkg in packages if pkg["pickup"] == next_loc and pkg["id"] in packages_to_handle]
+                if pickup_pkgs:
+                    pkg = pickup_pkgs[0]
+                    action_route.append({"location": next_loc, "action": "pickup", "package_id": pkg["id"]})
+                    current_package = pkg["id"]
+                    visited.add(next_loc)
+                    if next_loc in unvisited:
+                        unvisited.remove(next_loc)
                     current_location = next_loc
                     continue
-        # Prioritize package delivery if holding one
+        
+        # Priority 2: Deliver current package if holding one
         if current_package:
             delivery_loc = packages_to_handle[current_package]["delivery"]
-            if delivery_loc in unvisited or delivery_loc == current_location:
+            
+            # Check constraints before delivering
+            if (delivery_loc == "Shop" and not factory_constraint) or \
+               (delivery_loc == "Residence" and not dhl_constraint):
+                # Can't deliver yet due to constraints
+                pass
+            else:
                 _, dist = calculate_segment_path(current_location, delivery_loc)
-                if dist < min_dist:
-                    min_dist = dist
-                    next_loc = delivery_loc
-            if next_loc:
-                action_route.append({"location": next_loc, "action": "deliver", "package_id": current_package})
-                del packages_to_handle[current_package]
-                current_package = None
-                if next_loc in unvisited:
-                    unvisited.remove(next_loc)
-                _, segment_dist = calculate_segment_path(current_location, next_loc)
-                total_distance += segment_dist
-                current_location = next_loc
-                continue
-        # Choose nearest unvisited location
+                if dist < float('inf'):
+                    action_route.append({"location": delivery_loc, "action": "deliver", "package_id": current_package})
+                    del packages_to_handle[current_package]
+                    current_package = None
+                    visited.add(delivery_loc)
+                    if delivery_loc in unvisited:
+                        unvisited.remove(delivery_loc)
+                    current_location = delivery_loc
+                    continue
+        
+        # Priority 3: Visit remaining unvisited locations (considering constraints)
+        min_dist = float('inf')
+        next_loc = None
+        
         for loc in unvisited:
+            # Skip Shop if Factory hasn't been visited
+            if loc == "Shop" and not factory_constraint:
+                continue
+            # Skip Residence if DHL Hub hasn't been visited
+            if loc == "Residence" and not dhl_constraint:
+                continue
+            
             _, dist = calculate_segment_path(current_location, loc)
             if dist < min_dist:
                 min_dist = dist
                 next_loc = loc
+        
         if next_loc:
             action_route.append({"location": next_loc, "action": "visit", "package_id": None})
+            visited.add(next_loc)
             unvisited.remove(next_loc)
-            _, segment_dist = calculate_segment_path(current_location, next_loc)
-            total_distance += segment_dist
             current_location = next_loc
-        else:
-            attempt += 1  # Backtrack by trying a different path if stuck
-            if attempt >= max_attempts:
-                break
-
-    # Return to start
-    _, return_dist = calculate_segment_path(current_location, start_location)
-    if return_dist != float('inf'):
-        action_route.append({"location": start_location, "action": "visit", "package_id": None})
-        total_distance += return_dist
-
-    # Validate route
-    loc_only_route = [a["location"] for a in action_route]
-    if not check_constraints(loc_only_route) or not is_valid_route(action_route) or packages_to_handle:
+            continue
+        
+        # If we reach here, we might be stuck due to constraints
+        # Try to pick an available location that satisfies constraints
+        available_locs = []
+        
+        for loc in locations:
+            if loc not in visited:
+                if (loc == "Shop" and not factory_constraint) or \
+                   (loc == "Residence" and not dhl_constraint):
+                    continue
+                available_locs.append(loc)
+        
+        if available_locs:
+            # Find the closest available location
+            next_loc = min(available_locs, key=lambda loc: get_distance(current_location, loc))
+            _, dist = calculate_segment_path(current_location, next_loc)
+            
+            if dist < float('inf'):
+                action_route.append({"location": next_loc, "action": "visit", "package_id": None})
+                visited.add(next_loc)
+                if next_loc in unvisited:
+                    unvisited.remove(next_loc)
+                current_location = next_loc
+                continue
+        
+        # If we still can't find a valid next location, we're really stuck
+        # This could happen if road closures make it impossible to satisfy all constraints
+        break
+    
+    # Return to start location if possible
+    if current_location != start_location:
+        _, return_dist = calculate_segment_path(current_location, start_location)
+        if return_dist != float('inf'):
+            action_route.append({"location": start_location, "action": "visit", "package_id": None})
+    
+    # Check if the route is valid and satisfies constraints
+    if not check_constraints([a["location"] for a in action_route]):
         return None, None, float('inf')
-
-    full_path, _ = calculate_route_distance(action_route)
-    if not full_path:
+    
+    # Calculate full path and total distance
+    full_path, total_distance = calculate_route_distance(action_route)
+    
+    if full_path is None or total_distance == float('inf'):
         return None, None, float('inf')
+    
     return action_route, full_path, total_distance
 
 def get_nearest_accessible_location(current_location):

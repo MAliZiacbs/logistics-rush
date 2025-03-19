@@ -33,23 +33,40 @@ def start_new_game():
     st.session_state.packages = generate_packages(num_packages=3)
     st.session_state.total_packages = len(st.session_state.packages)
 
-    # Try to find an optimal route
+    # Try to find an optimal route with the improved algorithm
     optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
+    
     if optimal_route is None:
         st.warning("Optimal route calculation failed. Using fallback route starting from Factory.")
-        # Fallback route ensuring all locations are visited
-        fallback_route = [
-            {"location": start_location, "action": "visit", "package_id": None}
-        ]
-        for loc in locations_to_visit:
-            if loc != start_location:
-                fallback_route.append({"location": loc, "action": "visit", "package_id": None})
+        # Create a fallback route that ensures all constraints are met and all packages can be delivered
+        fallback_route = []
+        
+        # Make sure Factory comes before Shop and DHL Hub before Residence
+        for loc in ["Factory", "DHL Hub", "Shop", "Residence"]:
+            fallback_route.append({"location": loc, "action": "visit", "package_id": None})
+        
+        # Add the start location at the end to complete the route
+        if fallback_route[0]["location"] != start_location:
+            fallback_route.insert(0, {"location": start_location, "action": "visit", "package_id": None})
+        
         fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
-        optimal_path, optimal_distance = calculate_route_distance(fallback_route)
-        optimal_route = fallback_route
+        
+        # Calculate path and distance for the fallback route
+        fallback_path, optimal_distance = calculate_route_distance(fallback_route)
+        
+        if fallback_path:
+            optimal_route = fallback_route
+            optimal_path = fallback_path
+        else:
+            # If even the fallback fails, create a simple route with just the locations
+            optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in locations_to_visit]
+            optimal_path = locations_to_visit
+            optimal_distance = sum(get_distance(locations_to_visit[i], locations_to_visit[i+1]) 
+                                 for i in range(len(locations_to_visit)-1))
 
     st.session_state.optimal_route = optimal_route
     st.session_state.optimal_path = optimal_path if optimal_path else ["Factory"]
+    st.session_state.optimal_distance = optimal_distance if optimal_distance != float('inf') else 0
 
 def process_location_checkin(location):
     """Process a player checking in at a location"""
@@ -131,9 +148,14 @@ def end_game():
 
     game_time = time.time() - st.session_state.start_time
 
-    _, optimal_distance = calculate_route_distance(st.session_state.optimal_route)
-    if optimal_distance == float('inf'):
-        optimal_distance = 0  # Fallback if no valid optimal route
+    # Get the optimal distance using the stored path
+    optimal_distance = getattr(st.session_state, 'optimal_distance', 0)
+    if optimal_distance == 0 and st.session_state.optimal_route:
+        _, optimal_distance = calculate_route_distance(st.session_state.optimal_route)
+        if optimal_distance == float('inf'):
+            optimal_distance = 0  # Fallback if no valid optimal route
+    
+    # Calculate player's route distance
     player_distance = 0
     for i in range(len(st.session_state.current_route) - 1):
         segment_distance = get_distance(st.session_state.current_route[i], st.session_state.current_route[i+1])
@@ -170,9 +192,17 @@ def end_game():
     
     improvement_percent = ((optimal_score - player_score) / player_score * 100) if player_score > 0 else 0
 
+    # Store optimal path for visualization
+    optimal_path = []
+    if st.session_state.optimal_path and len(st.session_state.optimal_path) > 0:
+        optimal_path = st.session_state.optimal_path
+    else:
+        # Extract locations from optimal route
+        optimal_path = [r["location"] for r in st.session_state.optimal_route] if st.session_state.optimal_route else []
+    
     st.session_state.completed_routes = {
         "player": st.session_state.current_route.copy(),
-        "optimal": st.session_state.optimal_path.copy() if st.session_state.optimal_path else []
+        "optimal": optimal_path
     }
     
     if st.session_state.current_player:

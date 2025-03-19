@@ -101,16 +101,12 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             )
 
     # Optimal Route: Separate lines for each traversal with numbered sequence
-    if (optimal_route and 
-        hasattr(st.session_state, 'optimal_path') and 
-        st.session_state.optimal_path and 
-        len(st.session_state.optimal_path) > 1 and
-        (route_type == "both" or route_type == "optimal")):
-        for i in range(len(st.session_state.optimal_path) - 1):
-            x0, y0 = LOCATIONS[st.session_state.optimal_path[i]]["position"]
-            x1, y1 = LOCATIONS[st.session_state.optimal_path[i+1]]["position"]
+    if (optimal_route and len(optimal_route) > 1 and (route_type == "both" or route_type == "optimal")):
+        for i in range(len(optimal_route) - 1):
+            x0, y0 = LOCATIONS[optimal_route[i]]["position"]
+            x1, y1 = LOCATIONS[optimal_route[i+1]]["position"]
             # Apply offset for repeated traversals
-            offset = get_offset(st.session_state.optimal_path, i, i+1)
+            offset = get_offset(optimal_route, i, i+1)
             y0_offset = y0 - offset
             y1_offset = y1 - offset
             # Add separate line segment
@@ -121,7 +117,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                             color='#0466c8', line=dict(color='#0466c8', width=2)),
                 name=f'Optimal Route Step {i+1}' if i == 0 else None,
                 showlegend=(i == 0),
-                hoverinfo='text', hovertext=f"Step {i+1}: {st.session_state.optimal_path[i]} → {st.session_state.optimal_path[i+1]}"
+                hoverinfo='text', hovertext=f"Step {i+1}: {optimal_route[i]} → {optimal_route[i+1]}"
             ))
             # Add arrow
             dx, dy = x1 - x0, y1_offset - y0_offset
@@ -373,21 +369,34 @@ def render_game_results():
         st.code(route_text)
     with cc2:
         st.markdown("**Optimal Route:**")
-        if st.session_state.completed_routes["optimal"] and len(st.session_state.completed_routes["optimal"]) > 1:
-            optimal_actions = st.session_state.optimal_route
-            route_text = " → ".join(st.session_state.completed_routes["optimal"])
-            action_labels = []
-            for i, loc in enumerate(st.session_state.completed_routes["optimal"]):
-                action = next((a for a in optimal_actions if a["location"] == loc), None)
-                if action and action["action"] in ["pickup", "deliver"]:
-                    label = f"{loc} ({'P' if action['action'] == 'pickup' else 'D'}{action['package_id']})"
-                else:
-                    label = loc
-                action_labels.append(label)
-            route_text = " → ".join(action_labels)
-            st.code(route_text)
+        if "completed_routes" in st.session_state and "optimal" in st.session_state.completed_routes:
+            optimal_path = st.session_state.completed_routes["optimal"]
+            if optimal_path and len(optimal_path) > 1:
+                # Extract location sequence for display
+                route_text = " → ".join(optimal_path)
+                
+                # Try to get package actions from optimal_route if available
+                if hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
+                    optimal_actions = st.session_state.optimal_route
+                    action_labels = []
+                    
+                    for i, loc in enumerate(optimal_path):
+                        # Find matching action for this location
+                        action = next((a for a in optimal_actions if a["location"] == loc), None)
+                        if action and action["action"] in ["pickup", "deliver"] and action["package_id"] is not None:
+                            label = f"{loc} ({'P' if action['action'] == 'pickup' else 'D'}{action['package_id']})"
+                        else:
+                            label = loc
+                        action_labels.append(label)
+                    
+                    if len(action_labels) > 0:
+                        route_text = " → ".join(action_labels)
+                
+                st.code(route_text)
+            else:
+                st.markdown("*No optimal route available due to road closure.*")
         else:
-            st.markdown("*No optimal route available due to road closure.*")
+            st.markdown("*No optimal route information available.*")
 
     if st.button("Play Again", use_container_width=True):
         st.session_state.game_results = None
