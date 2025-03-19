@@ -40,15 +40,26 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                               y1=LOCATIONS[loc2]["position"][1], 
                               line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
 
+    # Track repeated traversals to offset lines
+    def get_offset(route, start_idx, end_idx):
+        """Calculate an offset for repeated traversals to visually separate them."""
+        path = tuple(sorted([route[start_idx], route[end_idx]]))  # Sort to treat A→B and B→A as same path
+        count = sum(1 for i in range(len(route) - 1) if tuple(sorted([route[i], route[i+1]])) == path and i < start_idx)
+        return count * 10  # Offset by 10 units per repeat
+
     # User Route: Separate lines for each traversal with numbered sequence
     line_width = 6 if not show_roads else 4
     if player_route and len(player_route) > 1 and (route_type == "both" or route_type == "player"):
         for i in range(len(player_route) - 1):
             x0, y0 = LOCATIONS[player_route[i]]["position"]
             x1, y1 = LOCATIONS[player_route[i+1]]["position"]
+            # Apply offset for repeated traversals
+            offset = get_offset(player_route, i, i+1)
+            y0_offset = y0 + offset
+            y1_offset = y1 + offset
             # Add separate line segment
             fig.add_trace(go.Scatter(
-                x=[x0, x1], y=[y0, y1], mode='lines+markers',
+                x=[x0, x1], y=[y0_offset, y1_offset], mode='lines+markers',
                 line=dict(color='#e63946', width=line_width),
                 marker=dict(size=10 if not show_roads else 8, color='#e63946', 
                             line=dict(color='#ffffff', width=2)),
@@ -57,11 +68,11 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 hoverinfo='text', hovertext=f"Step {i+1}: {player_route[i]} → {player_route[i+1]}"
             ))
             # Add arrow
-            dx, dy = x1 - x0, y1 - y0
+            dx, dy = x1 - x0, y1_offset - y0_offset
             length = np.sqrt(dx**2 + dy**2)
             dx, dy = dx / length, dy / length
             arrow_x = x0 + dx * length * 0.8
-            arrow_y = y0 + dy * length * 0.8
+            arrow_y = y0_offset + dy * length * 0.8
             fig.add_annotation(
                 x=arrow_x, y=arrow_y,
                 ax=arrow_x - dx * 15, ay=arrow_y - dy * 15,
@@ -71,7 +82,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             )
             # Add sequence number at midpoint
             mid_x = (x0 + x1) / 2
-            mid_y = (y0 + y1) / 2
+            mid_y = (y0_offset + y1_offset) / 2
             fig.add_annotation(
                 x=mid_x, y=mid_y,
                 text=f"{i+1}",
@@ -93,9 +104,13 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         for i in range(len(st.session_state.optimal_path) - 1):
             x0, y0 = LOCATIONS[st.session_state.optimal_path[i]]["position"]
             x1, y1 = LOCATIONS[st.session_state.optimal_path[i+1]]["position"]
+            # Apply offset for repeated traversals
+            offset = get_offset(st.session_state.optimal_path, i, i+1)
+            y0_offset = y0 - offset  # Offset in opposite direction to avoid overlap with user route
+            y1_offset = y1 - offset
             # Add separate line segment
             fig.add_trace(go.Scatter(
-                x=[x0, x1], y=[y0, y1], mode='lines+markers',
+                x=[x0, x1], y=[y0_offset, y1_offset], mode='lines+markers',
                 line=dict(color='#0466c8', width=line_width, dash='dot' if route_type == "both" else None),
                 marker=dict(size=10, symbol='circle-open' if route_type == "both" else "circle", 
                             color='#0466c8', line=dict(color='#0466c8', width=2)),
@@ -104,11 +119,11 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 hoverinfo='text', hovertext=f"Step {i+1}: {st.session_state.optimal_path[i]} → {st.session_state.optimal_path[i+1]}"
             ))
             # Add arrow
-            dx, dy = x1 - x0, y1 - y0
+            dx, dy = x1 - x0, y1_offset - y0_offset
             length = np.sqrt(dx**2 + dy**2)
             dx, dy = dx / length, dy / length
             arrow_x = x0 + dx * length * 0.8
-            arrow_y = y0 + dy * length * 0.8
+            arrow_y = y0_offset + dy * length * 0.8
             fig.add_annotation(
                 x=arrow_x, y=arrow_y,
                 ax=arrow_x - dx * 15, ay=arrow_y - dy * 15,
@@ -118,7 +133,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             )
             # Add sequence number at midpoint
             mid_x = (x0 + x1) / 2
-            mid_y = (y0 + y1) / 2
+            mid_y = (y0_offset + y1_offset) / 2
             fig.add_annotation(
                 x=mid_x, y=mid_y,
                 text=f"{i+1}",
