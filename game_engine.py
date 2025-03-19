@@ -192,18 +192,30 @@ def end_game():
     
     improvement_percent = ((optimal_score - player_score) / player_score * 100) if player_score > 0 else 0
 
-    # Store optimal path for visualization
-    optimal_path = []
-    if st.session_state.optimal_path and len(st.session_state.optimal_path) > 0:
-        optimal_path = st.session_state.optimal_path
+    # Ensure optimal_path is consistent between visualization and text description
+    if hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
+        # Extract locations from the action route in the correct order
+        optimal_path = []
+        seen_locations = set()
+        
+        for action in st.session_state.optimal_route:
+            location = action["location"]
+            # Only add each location once to avoid duplicates in the path
+            if location not in seen_locations:
+                optimal_path.append(location)
+                seen_locations.add(location)
     else:
-        # Extract locations from optimal route
-        optimal_path = [r["location"] for r in st.session_state.optimal_route] if st.session_state.optimal_route else []
+        # Fallback if optimal_route is not available
+        optimal_path = st.session_state.optimal_path if hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path else []
     
+    # Store the consistent path for both visualization and text description
     st.session_state.completed_routes = {
         "player": st.session_state.current_route.copy(),
         "optimal": optimal_path
     }
+    
+    # Store optimal_route for package operations in text description
+    st.session_state.completed_optimal_route = st.session_state.optimal_route if hasattr(st.session_state, 'optimal_route') else []
     
     if st.session_state.current_player:
         result_data = {

@@ -372,24 +372,48 @@ def render_game_results():
         if "completed_routes" in st.session_state and "optimal" in st.session_state.completed_routes:
             optimal_path = st.session_state.completed_routes["optimal"]
             if optimal_path and len(optimal_path) > 1:
-                # Extract location sequence for display
+                # First create the basic location route text 
                 route_text = " → ".join(optimal_path)
                 
-                # Try to get package actions from optimal_route if available
-                if hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
-                    optimal_actions = st.session_state.optimal_route
-                    action_labels = []
+                # Now try to create an enhanced version with package operations
+                if hasattr(st.session_state, 'completed_optimal_route') and st.session_state.completed_optimal_route:
+                    optimal_actions = st.session_state.completed_optimal_route
                     
-                    for i, loc in enumerate(optimal_path):
-                        # Find matching action for this location
-                        action = next((a for a in optimal_actions if a["location"] == loc), None)
-                        if action and action["action"] in ["pickup", "deliver"] and action["package_id"] is not None:
-                            label = f"{loc} ({'P' if action['action'] == 'pickup' else 'D'}{action['package_id']})"
+                    # Create a map of location to actions
+                    location_actions = {}
+                    for action in optimal_actions:
+                        loc = action["location"]
+                        act_type = action["action"]
+                        pkg_id = action["package_id"]
+                        
+                        if loc not in location_actions:
+                            location_actions[loc] = []
+                        
+                        if act_type in ["pickup", "deliver"] and pkg_id is not None:
+                            location_actions[loc].append((act_type, pkg_id))
+                    
+                    # Create enhanced labels for each location
+                    action_labels = []
+                    for loc in optimal_path:
+                        if loc in location_actions and location_actions[loc]:
+                            # Add actions to the location label
+                            actions = []
+                            for act_type, pkg_id in location_actions[loc]:
+                                action_code = "P" if act_type == "pickup" else "D"
+                                actions.append(f"{action_code}{pkg_id}")
+                            
+                            # Format the location with actions
+                            if actions:
+                                label = f"{loc} ({', '.join(actions)})"
+                            else:
+                                label = loc
                         else:
                             label = loc
+                        
                         action_labels.append(label)
                     
-                    if len(action_labels) > 0:
+                    # If we successfully created the enhanced labels, use them
+                    if action_labels:
                         route_text = " → ".join(action_labels)
                 
                 st.code(route_text)
