@@ -3,7 +3,7 @@ import plotly.graph_objects as go
 import numpy as np
 import time
 
-from config import LOCATIONS, GAME_MODES, ROAD_SEGMENTS  # Added ROAD_SEGMENTS to import
+from config import LOCATIONS, GAME_MODES, ROAD_SEGMENTS
 from routing import get_distance, suggest_next_location
 from feature_road_closures import is_road_closed
 from feature_packages import get_available_packages_at_location, get_package_hints
@@ -40,23 +40,28 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                               y1=LOCATIONS[loc2]["position"][1], 
                               line=dict(color="#ffffff", width=1, dash="dash"), layer="below")
 
-    # User Route: Solid line with hover info
+    # User Route: Separate lines for each traversal with numbered sequence
     line_width = 6 if not show_roads else 4
     if player_route and len(player_route) > 1 and (route_type == "both" or route_type == "player"):
-        route_x = [LOCATIONS[loc]["position"][0] for loc in player_route]
-        route_y = [LOCATIONS[loc]["position"][1] for loc in player_route]
-        hover_text = [f"Step {i+1}: {loc}" for i, loc in enumerate(player_route)]
-        
         for i in range(len(player_route) - 1):
             x0, y0 = LOCATIONS[player_route[i]]["position"]
             x1, y1 = LOCATIONS[player_route[i+1]]["position"]
+            # Add separate line segment
+            fig.add_trace(go.Scatter(
+                x=[x0, x1], y=[y0, y1], mode='lines+markers',
+                line=dict(color='#e63946', width=line_width),
+                marker=dict(size=10 if not show_roads else 8, color='#e63946', 
+                            line=dict(color='#ffffff', width=2)),
+                name=f'Your Route Step {i+1}' if i == 0 else None,  # Label only first segment
+                showlegend=(i == 0),  # Show legend only once
+                hoverinfo='text', hovertext=f"Step {i+1}: {player_route[i]} → {player_route[i+1]}"
+            ))
+            # Add arrow
             dx, dy = x1 - x0, y1 - y0
             length = np.sqrt(dx**2 + dy**2)
             dx, dy = dx / length, dy / length
-            
             arrow_x = x0 + dx * length * 0.8
             arrow_y = y0 + dy * length * 0.8
-            
             fig.add_annotation(
                 x=arrow_x, y=arrow_y,
                 ax=arrow_x - dx * 15, ay=arrow_y - dy * 15,
@@ -64,7 +69,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 showarrow=True, arrowhead=3, arrowsize=1.5, arrowwidth=2,
                 arrowcolor="#e63946"
             )
-            
+            # Add sequence number at midpoint
             mid_x = (x0 + x1) / 2
             mid_y = (y0 + y1) / 2
             fig.add_annotation(
@@ -78,36 +83,32 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 borderwidth=1,
                 opacity=0.8
             )
-        
-        fig.add_trace(go.Scatter(
-            x=route_x, y=route_y, mode='lines+markers',
-            line=dict(color='#e63946', width=line_width), opacity=0.9,
-            marker=dict(size=10 if not show_roads else 8, color='#e63946', 
-                        line=dict(color='#ffffff', width=2)),
-            name='Your Route', hoverinfo='text', hovertext=hover_text
-        ))
 
-    # Optimal Route
+    # Optimal Route: Separate lines for each traversal with numbered sequence
     if (optimal_route and 
         hasattr(st.session_state, 'optimal_path') and 
         st.session_state.optimal_path and 
         len(st.session_state.optimal_path) > 1 and
         (route_type == "both" or route_type == "optimal")):
-        
-        opt_route_x = [LOCATIONS[loc]["position"][0] for loc in st.session_state.optimal_path]
-        opt_route_y = [LOCATIONS[loc]["position"][1] for loc in st.session_state.optimal_path]
-        hover_text = [f"Step {chr(65+i)}: {loc}" for i, loc in enumerate(st.session_state.optimal_path)]
-        
         for i in range(len(st.session_state.optimal_path) - 1):
             x0, y0 = LOCATIONS[st.session_state.optimal_path[i]]["position"]
             x1, y1 = LOCATIONS[st.session_state.optimal_path[i+1]]["position"]
+            # Add separate line segment
+            fig.add_trace(go.Scatter(
+                x=[x0, x1], y=[y0, y1], mode='lines+markers',
+                line=dict(color='#0466c8', width=line_width, dash='dot' if route_type == "both" else None),
+                marker=dict(size=10, symbol='circle-open' if route_type == "both" else "circle", 
+                            color='#0466c8', line=dict(color='#0466c8', width=2)),
+                name=f'Optimal Route Step {i+1}' if i == 0 else None,  # Label only first segment
+                showlegend=(i == 0),  # Show legend only once
+                hoverinfo='text', hovertext=f"Step {i+1}: {st.session_state.optimal_path[i]} → {st.session_state.optimal_path[i+1]}"
+            ))
+            # Add arrow
             dx, dy = x1 - x0, y1 - y0
             length = np.sqrt(dx**2 + dy**2)
             dx, dy = dx / length, dy / length
-            
             arrow_x = x0 + dx * length * 0.8
             arrow_y = y0 + dy * length * 0.8
-            
             fig.add_annotation(
                 x=arrow_x, y=arrow_y,
                 ax=arrow_x - dx * 15, ay=arrow_y - dy * 15,
@@ -115,12 +116,12 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 showarrow=True, arrowhead=3, arrowsize=1.5, arrowwidth=2,
                 arrowcolor="#0466c8"
             )
-            
+            # Add sequence number at midpoint
             mid_x = (x0 + x1) / 2
             mid_y = (y0 + y1) / 2
             fig.add_annotation(
                 x=mid_x, y=mid_y,
-                text=f"{chr(65+i)}",
+                text=f"{i+1}",
                 showarrow=False,
                 font=dict(size=12, color="white"),
                 bgcolor="#0466c8",
@@ -129,17 +130,8 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 borderwidth=1,
                 opacity=0.8
             )
-            
-        fig.add_trace(go.Scatter(
-            x=opt_route_x, y=opt_route_y, mode='lines+markers',
-            line=dict(color='#0466c8', width=line_width, dash='dot' if route_type == "both" else None), 
-            opacity=0.8,
-            marker=dict(size=10, symbol='circle-open' if route_type == "both" else "circle", 
-                        color='#0466c8', line=dict(color='#0466c8', width=2)),
-            name='Optimal Route', hoverinfo='text', hovertext=hover_text
-        ))
 
-    # Location markers and package indicators (no Central Hub)
+    # Location markers and package indicators
     for location, details in LOCATIONS.items():
         r = 40
         cx, cy = details["position"]
@@ -235,7 +227,6 @@ def render_action_controls():
                 result = process_location_checkin(loc)
                 if result:
                     st.rerun()
-    # Removed Central Hub button
     if st.session_state.current_route:
         current_loc = st.session_state.current_route[-1]
         pickups = get_available_packages_at_location(current_loc)
