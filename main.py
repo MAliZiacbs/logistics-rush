@@ -42,6 +42,9 @@ if 'current_route' not in st.session_state:
 if 'optimal_route' not in st.session_state:
     st.session_state.optimal_route = []
 
+if 'optimal_path' not in st.session_state:
+    st.session_state.optimal_path = []
+
 if 'start_time' not in st.session_state:
     st.session_state.start_time = None
 
@@ -96,9 +99,16 @@ with tab1:
                 constraints=st.session_state.constraints
             )
         elif st.session_state.game_results:
+            # Add checks to ensure all components exist before visualization
+            has_player_route = "completed_routes" in st.session_state and "player" in st.session_state.completed_routes
+            has_optimal_route = "completed_routes" in st.session_state and "optimal" in st.session_state.completed_routes
+            
+            player_route = st.session_state.completed_routes.get("player", []) if has_player_route else []
+            optimal_route = st.session_state.completed_routes.get("optimal", []) if has_optimal_route else []
+            
             map_fig = visualize_map(
-                player_route=st.session_state.completed_routes["player"],
-                optimal_route=st.session_state.completed_routes["optimal"],
+                player_route=player_route,
+                optimal_route=optimal_route,
                 constraints=st.session_state.constraints
             )
         else:

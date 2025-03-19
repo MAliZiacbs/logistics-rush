@@ -74,16 +74,32 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None):
         ))
 
     # Optimal Route: Curved paths with action-based colors
-    if optimal_route and len(st.session_state.optimal_path) > 1:
+    # Fix for the index error: Check that optimal_route and optimal_path exist and have compatible lengths
+    if (optimal_route and 
+        hasattr(st.session_state, 'optimal_path') and 
+        st.session_state.optimal_path and 
+        len(st.session_state.optimal_path) > 1 and
+        hasattr(st.session_state, 'optimal_route') and
+        len(st.session_state.optimal_route) >= len(st.session_state.optimal_path) - 1):
+        
         for i in range(len(st.session_state.optimal_path) - 1):
             x0, y0 = LOCATIONS[st.session_state.optimal_path[i]]["position"]
             x1, y1 = LOCATIONS[st.session_state.optimal_path[i+1]]["position"]
-            action = st.session_state.optimal_route[i]
-            color = '#0466c8' if action["action"] == "visit" else '#10B981' if action["action"] == "pickup" else '#3B82F6'
+            
+            # Make sure we don't go out of bounds on optimal_route
+            if i < len(st.session_state.optimal_route):
+                action = st.session_state.optimal_route[i]
+                color = '#0466c8' if action["action"] == "visit" else '#10B981' if action["action"] == "pickup" else '#3B82F6'
+                hover_text = f"Step {chr(65+i)}: {action['location']} ({action['action'][0].upper()}{action['package_id'] or ''})"
+            else:
+                # Default values if optimal_route is shorter than optimal_path
+                color = '#0466c8'  # Default color
+                hover_text = f"Step {chr(65+i)}: {st.session_state.optimal_path[i]} → {st.session_state.optimal_path[i+1]}"
+                
             mid_x = (x0 + x1) / 2 - 50  # Curve downward for optimal route
             mid_y = (y0 + y1) / 2
             path = f"M {x0},{y0} Q {mid_x},{mid_y} {x1},{y1}"
-            hover_text = f"Step {chr(65+i)}: {action['location']} ({action['action'][0].upper()}{action['package_id'] or ''})"
+            
             fig.add_shape(type="path", path=path, line=dict(color=color, width=2, dash='dash'), opacity=0.5)
             # Add hover point for each segment
             fig.add_trace(go.Scatter(

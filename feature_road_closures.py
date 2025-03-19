@@ -2,7 +2,7 @@ import streamlit as st
 import random
 import networkx as nx
 
-from config import LOCATIONS, ROAD_SEGMENTS
+from config import LOCATIONS, ROAD_SEGMENTS, DISTANCES  # Added DISTANCES import
 
 def is_road_closed(loc1, loc2):
     """Check if a road between two locations is closed"""
