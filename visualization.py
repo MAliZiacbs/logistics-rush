@@ -74,11 +74,14 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             length = np.sqrt(dx**2 + dy**2)
             if length > 0:  # Avoid division by zero
                 dx, dy = dx / length, dy / length
-                arrow_x = x1 - dx * 15  # Position arrow near the end (Factory)
+                # Position the arrow near the end of the segment
+                arrow_x = x1 - dx * 15  # Tip of the arrow (near the end)
                 arrow_y = y1_offset - dy * 15
+                ref_x = x1 - dx * 25  # Reference point (slightly back from the tip)
+                ref_y = y1_offset - dy * 25
                 fig.add_annotation(
                     x=arrow_x, y=arrow_y,  # Tip of the arrow
-                    ax=x1 - dx * 25, ay=y1_offset - dy * 25,  # Reference point (slightly back)
+                    ax=ref_x, ay=ref_y,  # Reference point
                     xref="x", yref="y", axref="x", ayref="y",
                     showarrow=True, arrowhead=3, arrowsize=1, arrowwidth=1.5,
                     arrowcolor="#e63946"
@@ -128,9 +131,11 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 dx, dy = dx / length, dy / length
                 arrow_x = x1 - dx * 15
                 arrow_y = y1_offset - dy * 15
+                ref_x = x1 - dx * 25
+                ref_y = y1_offset - dy * 25
                 fig.add_annotation(
                     x=arrow_x, y=arrow_y,
-                    ax=x1 - dx * 25, ay=y1_offset - dy * 25,
+                    ax=ref_x, ay=ref_y,
                     xref="x", yref="y", axref="x", ayref="y",
                     showarrow=True, arrowhead=3, arrowsize=1, arrowwidth=1.5,
                     arrowcolor="#0466c8"
