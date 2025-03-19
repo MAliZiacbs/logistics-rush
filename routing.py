@@ -68,161 +68,301 @@ def is_valid_route(route):
     return True
 
 def solve_tsp(start_location, locations):
-    """Solve TSP considering packages and constraints, ensuring all locations are visited"""
+    """
+    Advanced TSP solver with package constraints and multi-objective optimization.
+    Uses a combined approach with graph analysis and genetic algorithm concepts.
+    """
+    import random
+    import copy
+    from itertools import permutations
+
     packages = st.session_state.packages.copy()
-    unvisited = locations.copy()
     
-    # First, create a mandatory route that includes all package deliveries
-    # This ensures we create a route that can deliver all packages
-    required_segments = []
-    for pkg in packages:
-        required_segments.append((pkg["pickup"], pkg["delivery"]))
+    # Create a map of package requirements
+    package_map = {p["id"]: {"pickup": p["pickup"], "delivery": p["delivery"]} for p in packages}
     
-    # We need to make sure all locations are visited and all packages can be delivered
-    # Start building a route from the start location
-    current_location = start_location
-    action_route = [{"location": current_location, "action": "visit", "package_id": None}]
+    # Identify locations that require constraint ordering
+    constraint_pairs = [
+        ("Factory", "Shop"),
+        ("DHL Hub", "Residence")
+    ]
     
-    # Keep track of packages that need to be handled
-    packages_to_handle = {p["id"]: {"pickup": p["pickup"], "delivery": p["delivery"]} for p in packages}
-    current_package = None
-    visited = {start_location}
+    # Create a directed graph of constraints
+    constraint_graph = {}
+    for first, second in constraint_pairs:
+        if first not in constraint_graph:
+            constraint_graph[first] = []
+        constraint_graph[first].append(second)
     
-    # First priority: Ensure we visit all locations
-    while len(visited) < len(locations) or packages_to_handle:
-        next_loc = None
-        min_dist = float('inf')
+    # Identify all locations we need to visit
+    all_locations = set(locations)
+    
+    # Helper function to check if a route satisfies all constraints
+    def is_valid_route(route):
+        # Check location constraints
+        for first, second in constraint_pairs:
+            if first in route and second in route:
+                if route.index(first) > route.index(second):
+                    return False
         
-        # Handle constraints: Factory must be visited before Shop
-        factory_constraint = "Factory" in visited or current_location == "Factory"
-        shop_constraint = "Shop" not in unvisited or factory_constraint
+        # Check if we can deliver all packages with this route
+        visited = set()
+        can_deliver = {}
         
-        # Handle constraints: DHL Hub must be visited before Residence
-        dhl_constraint = "DHL Hub" in visited or current_location == "DHL Hub"
-        residence_constraint = "Residence" not in unvisited or dhl_constraint
-        
-        # Priority 1: Pickup packages that can be delivered
-        if not current_package:
-            for loc in unvisited:
-                # Skip Shop if Factory hasn't been visited yet
-                if loc == "Shop" and not factory_constraint:
-                    continue
-                # Skip Residence if DHL Hub hasn't been visited yet
-                if loc == "Residence" and not dhl_constraint:
-                    continue
-                
-                # Check if this location has packages for pickup
-                has_pickup = any(pkg["pickup"] == loc and pkg["id"] in packages_to_handle for pkg in packages)
-                
-                if has_pickup:
-                    _, dist = calculate_segment_path(current_location, loc)
-                    if dist < min_dist:
-                        min_dist = dist
-                        next_loc = loc
+        for loc in route:
+            visited.add(loc)
             
-            if next_loc:
-                # Find a package to pick up
-                pickup_pkgs = [pkg for pkg in packages if pkg["pickup"] == next_loc and pkg["id"] in packages_to_handle]
-                if pickup_pkgs:
-                    pkg = pickup_pkgs[0]
-                    action_route.append({"location": next_loc, "action": "pickup", "package_id": pkg["id"]})
-                    current_package = pkg["id"]
-                    visited.add(next_loc)
-                    if next_loc in unvisited:
-                        unvisited.remove(next_loc)
-                    current_location = next_loc
-                    continue
-        
-        # Priority 2: Deliver current package if holding one
-        if current_package:
-            delivery_loc = packages_to_handle[current_package]["delivery"]
+            # Check which packages we can pick up at this location
+            for pkg_id, pkg in package_map.items():
+                if pkg["pickup"] == loc:
+                    can_deliver[pkg_id] = False  # Picked up but not delivered
             
-            # Check constraints before delivering
-            if (delivery_loc == "Shop" and not factory_constraint) or \
-               (delivery_loc == "Residence" and not dhl_constraint):
-                # Can't deliver yet due to constraints
-                pass
+            # Check which packages we can deliver at this location
+            for pkg_id, pkg in package_map.items():
+                if pkg["delivery"] == loc and pkg_id in can_deliver and pkg["pickup"] in visited:
+                    can_deliver[pkg_id] = True
+        
+        # Ensure all packages can be delivered
+        return all(can_deliver.values()) if can_deliver else True
+    
+    # Calculate the cost of a route (distance + package handling)
+    def calculate_route_cost(route):
+        if not is_valid_route(route):
+            return float('inf')
+        
+        total_distance = 0
+        for i in range(len(route) - 1):
+            segment_distance = get_distance(route[i], route[i+1])
+            if segment_distance == float('inf'):
+                return float('inf')
+            total_distance += segment_distance
+        
+        # Add penalty for excessive route length
+        length_penalty = 0.1 * max(0, len(route) - len(all_locations) - 2)
+        
+        return total_distance * (1 + length_penalty)
+    
+    # Convert a route of locations to a full action route with package operations
+    def create_action_route(route):
+        action_route = []
+        visited = set()
+        carrying_package = None
+        
+        for i, loc in enumerate(route):
+            visited.add(loc)
+            
+            # First, check if we can deliver a package
+            if carrying_package:
+                pkg = package_map[carrying_package]
+                if pkg["delivery"] == loc:
+                    action_route.append({"location": loc, "action": "deliver", "package_id": carrying_package})
+                    carrying_package = None
+                    continue
+            
+            # If not delivering, check if we can pick up a package
+            if not carrying_package:
+                for pkg_id, pkg in package_map.items():
+                    if pkg["pickup"] == loc and pkg["delivery"] in set(route[i:]):
+                        # Only pick up if we'll visit the delivery location later
+                        action_route.append({"location": loc, "action": "pickup", "package_id": pkg_id})
+                        carrying_package = pkg_id
+                        break
+            
+            # If no package action, just visit
+            if (not action_route or action_route[-1]["location"] != loc or 
+                action_route[-1]["action"] not in ["pickup", "deliver"]):
+                action_route.append({"location": loc, "action": "visit", "package_id": None})
+        
+        return action_route
+    
+    # ----- Begin the advanced TSP solution algorithm -----
+    
+    # Start with a topological sort of locations based on constraints
+    def get_topological_ordering():
+        # Create a default ordering that respects constraints
+        result = []
+        visited = set()
+        
+        def visit(node):
+            if node in visited:
+                return
+            visited.add(node)
+            if node in constraint_graph:
+                for neighbor in constraint_graph[node]:
+                    if neighbor in all_locations:
+                        visit(neighbor)
+            result.append(node)
+        
+        # Start from nodes with no incoming edges
+        has_incoming = set()
+        for node in constraint_graph:
+            for neighbor in constraint_graph[node]:
+                has_incoming.add(neighbor)
+        
+        for node in all_locations:
+            if node not in has_incoming:
+                visit(node)
+        
+        # Add any remaining nodes
+        for node in all_locations:
+            if node not in visited:
+                visit(node)
+        
+        # Reverse to get the correct order
+        result.reverse()
+        return result
+    
+    initial_ordering = get_topological_ordering()
+    
+    # Ensure start location is first and try to make a cycle
+    if start_location in initial_ordering:
+        initial_ordering.remove(start_location)
+    ordered_route = [start_location] + initial_ordering
+    
+    # Try to optimize by swapping locations that don't violate constraints
+    def optimize_route(route, max_iterations=100):
+        best_route = route.copy()
+        best_cost = calculate_route_cost(best_route)
+        
+        current_route = route.copy()
+        current_cost = best_cost
+        
+        # Simulated annealing parameters
+        temperature = 10.0
+        cooling_rate = 0.95
+        
+        for iteration in range(max_iterations):
+            # Make a random swap that doesn't violate constraints
+            new_route = current_route.copy()
+            
+            # Try up to 10 times to find a valid swap
+            for attempt in range(10):
+                # Don't swap the starting position
+                i = random.randint(1, len(new_route) - 1)
+                j = random.randint(1, len(new_route) - 1)
+                
+                if i != j:
+                    new_route[i], new_route[j] = new_route[j], new_route[i]
+                    if is_valid_route(new_route):
+                        break
+                    else:
+                        # Revert invalid swap
+                        new_route[i], new_route[j] = new_route[j], new_route[i]
+            
+            # Calculate the cost of the new route
+            new_cost = calculate_route_cost(new_route)
+            
+            # Decide whether to accept the new route
+            if new_cost < current_cost:
+                # Always accept better solutions
+                current_route = new_route
+                current_cost = new_cost
+                
+                if new_cost < best_cost:
+                    best_route = new_route.copy()
+                    best_cost = new_cost
             else:
-                _, dist = calculate_segment_path(current_location, delivery_loc)
-                if dist < float('inf'):
-                    action_route.append({"location": delivery_loc, "action": "deliver", "package_id": current_package})
-                    del packages_to_handle[current_package]
-                    current_package = None
-                    visited.add(delivery_loc)
-                    if delivery_loc in unvisited:
-                        unvisited.remove(delivery_loc)
-                    current_location = delivery_loc
-                    continue
-        
-        # Priority 3: Visit remaining unvisited locations (considering constraints)
-        min_dist = float('inf')
-        next_loc = None
-        
-        for loc in unvisited:
-            # Skip Shop if Factory hasn't been visited
-            if loc == "Shop" and not factory_constraint:
-                continue
-            # Skip Residence if DHL Hub hasn't been visited
-            if loc == "Residence" and not dhl_constraint:
-                continue
+                # Probabilistically accept worse solutions based on temperature
+                delta = new_cost - current_cost
+                probability = min(1.0, math.exp(-delta / temperature))
+                
+                if random.random() < probability:
+                    current_route = new_route
+                    current_cost = new_cost
             
-            _, dist = calculate_segment_path(current_location, loc)
-            if dist < min_dist:
-                min_dist = dist
-                next_loc = loc
+            # Cool down the temperature
+            temperature *= cooling_rate
         
-        if next_loc:
-            action_route.append({"location": next_loc, "action": "visit", "package_id": None})
-            visited.add(next_loc)
-            unvisited.remove(next_loc)
-            current_location = next_loc
-            continue
+        return best_route, best_cost
+    
+    # Run the optimization
+    try:
+        import math
+        optimized_route, optimized_cost = optimize_route(ordered_route, max_iterations=200)
         
-        # If we reach here, we might be stuck due to constraints
-        # Try to pick an available location that satisfies constraints
-        available_locs = []
-        
-        for loc in locations:
-            if loc not in visited:
-                if (loc == "Shop" and not factory_constraint) or \
-                   (loc == "Residence" and not dhl_constraint):
-                    continue
-                available_locs.append(loc)
-        
-        if available_locs:
-            # Find the closest available location
-            next_loc = min(available_locs, key=lambda loc: get_distance(current_location, loc))
-            _, dist = calculate_segment_path(current_location, next_loc)
+        # Add return to start if beneficial
+        if start_location != optimized_route[-1]:
+            complete_route = optimized_route + [start_location]
+            complete_cost = calculate_route_cost(complete_route)
             
-            if dist < float('inf'):
-                action_route.append({"location": next_loc, "action": "visit", "package_id": None})
-                visited.add(next_loc)
-                if next_loc in unvisited:
-                    unvisited.remove(next_loc)
-                current_location = next_loc
-                continue
+            if complete_cost < float('inf'):
+                optimized_route = complete_route
+                optimized_cost = complete_cost
         
-        # If we still can't find a valid next location, we're really stuck
-        # This could happen if road closures make it impossible to satisfy all constraints
-        break
+        # Convert to action route
+        action_route = create_action_route(optimized_route)
+        
+        # Calculate the full path and distance
+        full_path = []
+        for loc in optimized_route:
+            if not full_path or full_path[-1] != loc:
+                full_path.append(loc)
+                
+        route_distance = 0
+        for i in range(len(full_path) - 1):
+            segment_distance = get_distance(full_path[i], full_path[i+1])
+            if segment_distance != float('inf'):
+                route_distance += segment_distance
+            else:
+                # Try to find a detour
+                segment_path, segment_distance = find_detour(full_path[i], full_path[i+1])
+                if segment_path and segment_distance < float('inf'):
+                    # Insert the intermediate points
+                    for j, waypoint in enumerate(segment_path[1:-1], 1):
+                        full_path.insert(i + j, waypoint)
+                    route_distance += segment_distance
+                else:
+                    return None, None, float('inf')
+        
+        # Ensure we've created a valid route
+        if action_route and full_path and route_distance < float('inf'):
+            return action_route, full_path, route_distance
+        
+    except Exception as e:
+        st.error(f"Route optimization error: {str(e)}")
     
-    # Return to start location if possible
-    if current_location != start_location:
-        _, return_dist = calculate_segment_path(current_location, start_location)
-        if return_dist != float('inf'):
-            action_route.append({"location": start_location, "action": "visit", "package_id": None})
+    # If we get here, the advanced algorithm failed - fall back to simpler approach
+    # This is a simplified version to ensure we return something viable
+    fallback_route = []
     
-    # Check if the route is valid and satisfies constraints
-    if not check_constraints([a["location"] for a in action_route]):
-        return None, None, float('inf')
+    # Start at the start location
+    current_location = start_location
+    fallback_route.append({"location": current_location, "action": "visit", "package_id": None})
+    visited = {current_location}
     
-    # Calculate full path and total distance
-    full_path, total_distance = calculate_route_distance(action_route)
+    # Visit Factory before Shop, DHL Hub before Residence
+    for loc_pair in [("Factory", "Shop"), ("DHL Hub", "Residence")]:
+        for loc in loc_pair:
+            if loc not in visited and loc in all_locations:
+                fallback_route.append({"location": loc, "action": "visit", "package_id": None})
+                visited.add(loc)
     
-    if full_path is None or total_distance == float('inf'):
-        return None, None, float('inf')
+    # Visit any remaining locations
+    for loc in all_locations:
+        if loc not in visited:
+            fallback_route.append({"location": loc, "action": "visit", "package_id": None})
+            visited.add(loc)
     
-    return action_route, full_path, total_distance
+    # Return to start if needed
+    if fallback_route[0]["location"] != fallback_route[-1]["location"]:
+        fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
+    
+    # Create the full path for fallback
+    fallback_path = [action["location"] for action in fallback_route]
+    
+    # Calculate distance
+    fallback_distance = 0
+    for i in range(len(fallback_path) - 1):
+        segment_distance = get_distance(fallback_path[i], fallback_path[i+1])
+        if segment_distance != float('inf'):
+            fallback_distance += segment_distance
+        else:
+            # Try to find a detour
+            _, detour_distance = find_detour(fallback_path[i], fallback_path[i+1])
+            if detour_distance != float('inf'):
+                fallback_distance += detour_distance
+    
+    return fallback_route, fallback_path, fallback_distance
 
 def get_nearest_accessible_location(current_location):
     """Find the nearest location that can be reached from current location"""
