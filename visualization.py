@@ -9,7 +9,7 @@ from feature_road_closures import is_road_closed
 from feature_packages import get_available_packages_at_location, get_package_hints
 from game_engine import process_location_checkin, pickup_package, get_game_status, get_completion_summary
 
-def visualize_map(player_route=None, optimal_route=None, constraints=None, show_roads=True):
+def visualize_map(player_route=None, optimal_route=None, constraints=None, show_roads=True, route_type="both"):
     """Create a clean, professional visual map with improved route display.
     
     Parameters:
@@ -17,6 +17,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
     - optimal_route: List of optimal locations to visit
     - constraints: Dictionary of constraints for each location
     - show_roads: Whether to show roads (set to False for result visualization)
+    - route_type: Which route to show - "both", "player", or "optimal"
     """
     fig = go.Figure()
     
@@ -71,10 +72,47 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
 
     # User Route: Solid line with hover info - make it more prominent in results view
     line_width = 6 if not show_roads else 4  # Thicker line when showing results
-    if player_route and len(player_route) > 1:
+    if player_route and len(player_route) > 1 and (route_type == "both" or route_type == "player"):
         route_x = [LOCATIONS[loc]["position"][0] for loc in player_route]
         route_y = [LOCATIONS[loc]["position"][1] for loc in player_route]
         hover_text = [f"Step {i+1}: {loc}" for i, loc in enumerate(player_route)]
+        
+        # Add arrows to show direction for player route
+        for i in range(len(player_route) - 1):
+            x0, y0 = LOCATIONS[player_route[i]]["position"]
+            x1, y1 = LOCATIONS[player_route[i+1]]["position"]
+            dx, dy = x1 - x0, y1 - y0
+            length = np.sqrt(dx**2 + dy**2)
+            dx, dy = dx / length, dy / length  # Normalize
+            
+            # Calculate arrow position (80% of the way)
+            arrow_x = x0 + dx * length * 0.8
+            arrow_y = y0 + dy * length * 0.8
+            
+            # Add arrow annotation
+            fig.add_annotation(
+                x=arrow_x, y=arrow_y,
+                ax=arrow_x - dx * 15, ay=arrow_y - dy * 15,
+                xref="x", yref="y", axref="x", ayref="y",
+                showarrow=True, arrowhead=3, arrowsize=1.5, arrowwidth=2,
+                arrowcolor="#e63946"
+            )
+            
+            # Add step number at midpoint
+            mid_x = (x0 + x1) / 2
+            mid_y = (y0 + y1) / 2
+            fig.add_annotation(
+                x=mid_x, y=mid_y,
+                text=f"{i+1}",
+                showarrow=False,
+                font=dict(size=12, color="white"),
+                bgcolor="#e63946",
+                bordercolor="#e63946",
+                borderpad=3,
+                borderwidth=1,
+                opacity=0.8
+            )
+        
         fig.add_trace(go.Scatter(
             x=route_x, y=route_y, mode='lines+markers',
             line=dict(color='#e63946', width=line_width), opacity=0.9,
@@ -83,53 +121,62 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             name='Your Route', hoverinfo='text', hovertext=hover_text
         ))
 
-    # Optimal Route: Curved paths with action-based colors
-    # Fix for the index error: Check that optimal_route and optimal_path exist and have compatible lengths
+    # Optimal Route
     if (optimal_route and 
         hasattr(st.session_state, 'optimal_path') and 
         st.session_state.optimal_path and 
         len(st.session_state.optimal_path) > 1 and
-        hasattr(st.session_state, 'optimal_route') and
-        len(st.session_state.optimal_route) >= len(st.session_state.optimal_path) - 1):
+        (route_type == "both" or route_type == "optimal")):
         
-        # Draw a single optimal path line when showing results
-        if not show_roads:
-            opt_route_x = [LOCATIONS[loc]["position"][0] for loc in st.session_state.optimal_path]
-            opt_route_y = [LOCATIONS[loc]["position"][1] for loc in st.session_state.optimal_path]
-            hover_text = [f"Step {chr(65+i)}: {loc}" for i, loc in enumerate(st.session_state.optimal_path)]
-            fig.add_trace(go.Scatter(
-                x=opt_route_x, y=opt_route_y, mode='lines+markers',
-                line=dict(color='#0466c8', width=line_width, dash='dot'), opacity=0.8,
-                marker=dict(size=10, symbol='circle-open', color='#0466c8', line=dict(color='#0466c8', width=2)),
-                name='Optimal Route', hoverinfo='text', hovertext=hover_text
-            ))
-        else:
-            # Original curved path display for in-game view
-            for i in range(len(st.session_state.optimal_path) - 1):
-                x0, y0 = LOCATIONS[st.session_state.optimal_path[i]]["position"]
-                x1, y1 = LOCATIONS[st.session_state.optimal_path[i+1]]["position"]
-                
-                # Make sure we don't go out of bounds on optimal_route
-                if i < len(st.session_state.optimal_route):
-                    action = st.session_state.optimal_route[i]
-                    color = '#0466c8' if action["action"] == "visit" else '#10B981' if action["action"] == "pickup" else '#3B82F6'
-                    hover_text = f"Step {chr(65+i)}: {action['location']} ({action['action'][0].upper()}{action['package_id'] or ''})"
-                else:
-                    # Default values if optimal_route is shorter than optimal_path
-                    color = '#0466c8'  # Default color
-                    hover_text = f"Step {chr(65+i)}: {st.session_state.optimal_path[i]} → {st.session_state.optimal_path[i+1]}"
-                    
-                mid_x = (x0 + x1) / 2 - 50  # Curve downward for optimal route
-                mid_y = (y0 + y1) / 2
-                path = f"M {x0},{y0} Q {mid_x},{mid_y} {x1},{y1}"
-                
-                fig.add_shape(type="path", path=path, line=dict(color=color, width=2, dash='dash'), opacity=0.5)
-                # Add hover point for each segment
-                fig.add_trace(go.Scatter(
-                    x=[(x0 + x1) / 2], y=[(y0 + y1) / 2], mode='markers',
-                    marker=dict(size=1, color=color, opacity=0), hoverinfo='text', hovertext=[hover_text],
-                    showlegend=False
-                ))
+        # Draw a cleaner optimal path
+        opt_route_x = [LOCATIONS[loc]["position"][0] for loc in st.session_state.optimal_path]
+        opt_route_y = [LOCATIONS[loc]["position"][1] for loc in st.session_state.optimal_path]
+        hover_text = [f"Step {chr(65+i)}: {loc}" for i, loc in enumerate(st.session_state.optimal_path)]
+        
+        # Add arrows to show direction for optimal route
+        for i in range(len(st.session_state.optimal_path) - 1):
+            x0, y0 = LOCATIONS[st.session_state.optimal_path[i]]["position"]
+            x1, y1 = LOCATIONS[st.session_state.optimal_path[i+1]]["position"]
+            dx, dy = x1 - x0, y1 - y0
+            length = np.sqrt(dx**2 + dy**2)
+            dx, dy = dx / length, dy / length  # Normalize
+            
+            # Calculate arrow position (80% of the way)
+            arrow_x = x0 + dx * length * 0.8
+            arrow_y = y0 + dy * length * 0.8
+            
+            # Add arrow annotation
+            fig.add_annotation(
+                x=arrow_x, y=arrow_y,
+                ax=arrow_x - dx * 15, ay=arrow_y - dy * 15,
+                xref="x", yref="y", axref="x", ayref="y",
+                showarrow=True, arrowhead=3, arrowsize=1.5, arrowwidth=2,
+                arrowcolor="#0466c8"
+            )
+            
+            # Add step letter at midpoint
+            mid_x = (x0 + x1) / 2
+            mid_y = (y0 + y1) / 2
+            fig.add_annotation(
+                x=mid_x, y=mid_y,
+                text=f"{chr(65+i)}",
+                showarrow=False,
+                font=dict(size=12, color="white"),
+                bgcolor="#0466c8",
+                bordercolor="#0466c8",
+                borderpad=3,
+                borderwidth=1,
+                opacity=0.8
+            )
+            
+        fig.add_trace(go.Scatter(
+            x=opt_route_x, y=opt_route_y, mode='lines+markers',
+            line=dict(color='#0466c8', width=line_width, dash='dot' if route_type == "both" else None), 
+            opacity=0.8,
+            marker=dict(size=10, symbol='circle-open' if route_type == "both" else "circle", 
+                        color='#0466c8', line=dict(color='#0466c8', width=2)),
+            name='Optimal Route', hoverinfo='text', hovertext=hover_text
+        ))
 
     # Central Hub
     central_hub = LOCATIONS["Central Hub"]
@@ -188,18 +235,28 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                            font=dict(size=12, color="#EF4444", weight="bold"), 
                            bgcolor="rgba(255,255,255,0.8)", borderpad=3)
     
-    # Show comparison text in results view
-    if not show_roads and optimal_route:
-        fig.add_annotation(x=400, y=40, text="ROUTE COMPARISON", showarrow=False, 
-                           font=dict(size=16, color="#333333", weight="bold"), 
-                           bgcolor="rgba(255,255,255,0.8)", borderpad=3)
+    # Show map title based on route type
+    if not show_roads:
+        if route_type == "player":
+            fig.add_annotation(x=400, y=40, text="YOUR ROUTE", showarrow=False, 
+                               font=dict(size=16, color="#e63946", weight="bold"), 
+                               bgcolor="rgba(255,255,255,0.8)", borderpad=3)
+        elif route_type == "optimal":
+            fig.add_annotation(x=400, y=40, text="OPTIMAL ROUTE", showarrow=False, 
+                               font=dict(size=16, color="#0466c8", weight="bold"), 
+                               bgcolor="rgba(255,255,255,0.8)", borderpad=3)
+        elif route_type == "both":
+            fig.add_annotation(x=400, y=40, text="ROUTE COMPARISON", showarrow=False, 
+                               font=dict(size=16, color="#333333", weight="bold"), 
+                               bgcolor="rgba(255,255,255,0.8)", borderpad=3)
     
     fig.add_annotation(x=400, y=370, text="LOGISTICS RUSH", showarrow=False, 
                        font=dict(size=24, color="#333333", family="Arial Black"), opacity=0.8)
 
     # Layout settings
     fig.update_layout(
-        height=500, showlegend=True, 
+        height=400 if not show_roads else 500,  # Slightly smaller maps for the split view
+        showlegend=True, 
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, 
                     bgcolor="rgba(255,255,255,0.8)", bordercolor="#cccccc", borderwidth=1),
         xaxis=dict(range=[-50, 850], showgrid=False, zeroline=False, showticklabels=False),
