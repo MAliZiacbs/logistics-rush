@@ -248,16 +248,16 @@ def render_action_controls():
             disabled = (loc == "Shop" and "Factory" not in st.session_state.current_route)
             btn_type = "primary" if st.session_state.current_route and suggest_next_location(st.session_state.current_route[-1], st.session_state.current_route, st.session_state.packages)[0] == loc else "secondary"
             if st.button(f"{LOCATIONS[loc]['emoji']} {loc}", key=f"btn_{loc}", disabled=disabled, type=btn_type, use_container_width=True):
-                result = process_location_checkin(loc)
-                if result:
+                if process_location_checkin(loc):
+                    # Force a rerun to update the map with the new state
                     st.rerun()
     with col2:
         for loc in ["DHL Hub", "Residence"]:
             disabled = (loc == "Residence" and "DHL Hub" not in st.session_state.current_route)
             btn_type = "primary" if st.session_state.current_route and suggest_next_location(st.session_state.current_route[-1], st.session_state.current_route, st.session_state.packages)[0] == loc else "secondary"
             if st.button(f"{LOCATIONS[loc]['emoji']} {loc}", key=f"btn_{loc}", disabled=disabled, type=btn_type, use_container_width=True):
-                result = process_location_checkin(loc)
-                if result:
+                if process_location_checkin(loc):
+                    # Force a rerun to update the map with the new state
                     st.rerun()
     if st.session_state.current_route:
         current_loc = st.session_state.current_route[-1]
@@ -267,6 +267,7 @@ def render_action_controls():
             for pkg in pickups:
                 if st.button(f"{pkg['icon']} Package #{pkg['id']} to {pkg['delivery']}", key=f"pickup_{pkg['id']}", type="primary", use_container_width=True):
                     pickup_package(pkg)
+                    # Force a rerun to update the UI
                     st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 

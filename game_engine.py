@@ -70,6 +70,9 @@ def process_location_checkin(location):
         elif location == "Residence" and "DHL Hub" not in st.session_state.current_route:
             st.error("You must visit DHL Hub before Residence!")
         return None
+    
+    # First update the route - this is critical for visualization
+    st.session_state.current_route.append(location)
             
     if st.session_state.current_package and st.session_state.current_package["delivery"] == location:
         st.session_state.current_package["status"] = "delivered"
@@ -81,8 +84,6 @@ def process_location_checkin(location):
                          if p["pickup"] == location and p["status"] == "waiting"]
     if available_pickups and not st.session_state.current_package:
         st.info(f"📦 There are {len(available_pickups)} packages available for pickup at {location}!")
-
-    st.session_state.current_route.append(location)
     
     main_locations = list(LOCATIONS.keys())  # No Central Hub
     all_locations_visited = all(loc in st.session_state.current_route for loc in main_locations)
@@ -94,7 +95,7 @@ def process_location_checkin(location):
                 st.session_state.current_route.append(st.session_state.current_route[0])
         return end_game()
             
-    return None
+    return True  # Return True to indicate successful check-in
 
 def pickup_package(package):
     """Pick up a package at the current location"""

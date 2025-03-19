@@ -94,6 +94,7 @@ with tab1:
         # Map Section
         st.markdown('<div class="card">', unsafe_allow_html=True)
         if st.session_state.game_active:
+            # Make sure to use the current route for visualization
             map_fig = visualize_map(
                 player_route=st.session_state.current_route,
                 constraints=st.session_state.constraints,
