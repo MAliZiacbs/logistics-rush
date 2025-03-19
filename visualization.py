@@ -3,7 +3,7 @@ import plotly.graph_objects as go
 import numpy as np
 import time
 
-from config import LOCATIONS, GAME_MODES
+from config import LOCATIONS, GAME_MODES, ROAD_SEGMENTS  # Added ROAD_SEGMENTS to import
 from routing import get_distance, suggest_next_location
 from feature_road_closures import is_road_closed
 from feature_packages import get_available_packages_at_location, get_package_hints
