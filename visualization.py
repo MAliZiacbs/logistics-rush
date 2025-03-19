@@ -30,7 +30,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         fig.add_shape(type="line", x0=0, y0=i, x1=800, y1=i, 
                       line=dict(color="rgba(0, 80, 40, 0.1)", width=1), layer="below")
     
-    # Draw road segments only if show_roads is True
+    # Only draw road segments if show_roads is True
     if show_roads:
         for location, details in LOCATIONS.items():
             if location != "Central Hub":
@@ -157,9 +157,11 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 elif has_delivery:
                     highlight_color = "#3B82F6"
             
-            if constraints and location in constraints:
+            # Don't show constraint lines in results view
+            if constraints and location in constraints and show_roads:
                 fig.add_shape(type="path", path=path, fillcolor="rgba(0,0,0,0)", 
                               line=dict(color="#6366F1", width=4))
+            
             fig.add_shape(type="path", path=path, fillcolor=highlight_color, 
                           line=dict(color="#ffffff", width=2))
             fig.add_annotation(x=details["position"][0], y=details["position"][1], text=f"{location}", 
