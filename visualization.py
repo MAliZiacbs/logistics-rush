@@ -45,10 +45,10 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         """Calculate an offset for repeated traversals to visually separate them."""
         path = tuple(sorted([route[start_idx], route[end_idx]]))  # Sort to treat A→B and B→A as same path
         count = sum(1 for i in range(len(route) - 1) if tuple(sorted([route[i], route[i+1]])) == path and i < start_idx)
-        return count * 10  # Offset by 10 units per repeat
+        return count * 20  # Increased offset to 20 units per repeat
 
     # User Route: Separate lines for each traversal with numbered sequence
-    line_width = 6 if not show_roads else 4
+    line_width = 4 if not show_roads else 2  # Reduced line width for clarity
     if player_route and len(player_route) > 1 and (route_type == "both" or route_type == "player"):
         for i in range(len(player_route) - 1):
             x0, y0 = LOCATIONS[player_route[i]]["position"]
