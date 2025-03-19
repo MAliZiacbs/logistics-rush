@@ -100,34 +100,65 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 opacity=0.8
             )
 
-    # Optimal Route: Separate lines for each traversal with numbered sequence
+    # Optimal Route: Draw as a sequential path with numbered steps
     if (optimal_route and len(optimal_route) > 1 and (route_type == "both" or route_type == "optimal")):
+        # Create a data structure for drawing the optimal route with proper sequencing
+        optimal_path_steps = []
+        
+        # Process each step in the route sequence
         for i in range(len(optimal_route) - 1):
-            x0, y0 = LOCATIONS[optimal_route[i]]["position"]
-            x1, y1 = LOCATIONS[optimal_route[i+1]]["position"]
-            # Apply offset for repeated traversals
+            from_loc = optimal_route[i]
+            to_loc = optimal_route[i+1]
+            
+            # Get positions
+            x0, y0 = LOCATIONS[from_loc]["position"]
+            x1, y1 = LOCATIONS[to_loc]["position"]
+            
+            # Apply offset to visually separate repeated segments
             offset = get_offset(optimal_route, i, i+1)
             y0_offset = y0 - offset
             y1_offset = y1 - offset
-            # Add separate line segment
+            
+            # Store step information
+            optimal_path_steps.append({
+                'from': from_loc,
+                'to': to_loc,
+                'x0': x0,
+                'y0': y0_offset,
+                'x1': x1,
+                'y1': y1_offset,
+                'step': i+1
+            })
+        
+        # Draw each step of the path sequentially
+        for step_info in optimal_path_steps:
+            # Draw the line segment
             fig.add_trace(go.Scatter(
-                x=[x0, x1], y=[y0_offset, y1_offset], mode='lines+markers',
-                line=dict(color='#0466c8', width=line_width, dash='dot' if route_type == "both" else None),
+                x=[step_info['x0'], step_info['x1']], 
+                y=[step_info['y0'], step_info['y1']], 
+                mode='lines+markers',
+                line=dict(color='#0466c8', width=line_width, 
+                         dash='dot' if route_type == "both" else None),
                 marker=dict(size=10, symbol='circle-open' if route_type == "both" else "circle", 
-                            color='#0466c8', line=dict(color='#0466c8', width=2)),
-                name=f'Optimal Route Step {i+1}' if i == 0 else None,
-                showlegend=(i == 0),
-                hoverinfo='text', hovertext=f"Step {i+1}: {optimal_route[i]} → {optimal_route[i+1]}"
+                           color='#0466c8', line=dict(color='#0466c8', width=2)),
+                name=f'Optimal Route Step {step_info["step"]}' if step_info["step"] == 1 else None,
+                showlegend=(step_info["step"] == 1),
+                hoverinfo='text', 
+                hovertext=f"Step {step_info['step']}: {step_info['from']} → {step_info['to']}"
             ))
-            # Add arrow
-            dx, dy = x1 - x0, y1_offset - y0_offset
+            
+            # Add arrow showing direction
+            dx = step_info['x1'] - step_info['x0']
+            dy = step_info['y1'] - step_info['y0']
             length = np.sqrt(dx**2 + dy**2)
+            
             if length > 0:
                 dx, dy = dx / length, dy / length
-                arrow_x = x1 - dx * 15
-                arrow_y = y1_offset - dy * 15
-                ref_x = x1 - dx * 25
-                ref_y = y1_offset - dy * 25
+                arrow_x = step_info['x1'] - dx * 15
+                arrow_y = step_info['y1'] - dy * 15
+                ref_x = step_info['x1'] - dx * 25
+                ref_y = step_info['y1'] - dy * 25
+                
                 fig.add_annotation(
                     x=arrow_x, y=arrow_y,
                     ax=ref_x, ay=ref_y,
@@ -135,12 +166,14 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                     showarrow=True, arrowhead=3, arrowsize=1, arrowwidth=1.5,
                     arrowcolor="#0466c8"
                 )
-            # Add sequence number at midpoint with slight horizontal offset
-            mid_x = (x0 + x1) / 2 + (5 if dx > 0 else -5)
-            mid_y = (y0_offset + y1_offset) / 2
+            
+            # Add sequence number
+            mid_x = (step_info['x0'] + step_info['x1']) / 2 + (5 if dx > 0 else -5)
+            mid_y = (step_info['y0'] + step_info['y1']) / 2
+            
             fig.add_annotation(
                 x=mid_x, y=mid_y,
-                text=f"{i+1}",
+                text=f"{step_info['step']}",
                 showarrow=False,
                 font=dict(size=10, color="white"),
                 bgcolor="#0466c8",
@@ -375,7 +408,10 @@ def render_game_results():
                 # First create the basic location route text 
                 route_text = " → ".join(optimal_path)
                 
-                # Now try to create an enhanced version with package operations
+                # Get all packages
+                all_packages = st.session_state.packages
+
+                # Create an enhanced version with package operations
                 if hasattr(st.session_state, 'completed_optimal_route') and st.session_state.completed_optimal_route:
                     optimal_actions = st.session_state.completed_optimal_route
                     
@@ -416,6 +452,29 @@ def render_game_results():
                     if action_labels:
                         route_text = " → ".join(action_labels)
                 
+                # Verify all packages are represented
+                package_operations = []
+                for pkg in all_packages:
+                    pickup_found = False
+                    delivery_found = False
+                    
+                    # Check if route_text contains all package operations
+                    for i in range(len(optimal_actions)):
+                        action = optimal_actions[i]
+                        if action["package_id"] == pkg["id"]:
+                            if action["action"] == "pickup":
+                                pickup_found = True
+                            elif action["action"] == "deliver":
+                                delivery_found = True
+                    
+                    package_operations.append((pkg["id"], pickup_found, delivery_found))
+                
+                # If any packages are missing operations, add debug info
+                missing_operations = [pkg_id for pkg_id, pickup, delivery in package_operations if not (pickup and delivery)]
+                if missing_operations and not st.session_state.get("debug_shown", False):
+                    st.warning(f"Note: The optimal route may not show all package operations. Missing operations for packages: {missing_operations}")
+                    st.session_state.debug_shown = True
+                
                 st.code(route_text)
             else:
                 st.markdown("*No optimal route available due to road closure.*")
@@ -424,5 +483,6 @@ def render_game_results():
 
     if st.button("Play Again", use_container_width=True):
         st.session_state.game_results = None
+        st.session_state.debug_shown = False
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)

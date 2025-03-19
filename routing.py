@@ -70,7 +70,7 @@ def is_valid_route(route):
 def solve_tsp(start_location, locations):
     """
     Advanced TSP solver with package constraints and multi-objective optimization.
-    Uses a combined approach with graph analysis and genetic algorithm concepts.
+    Ensures all packages are included in the optimal route.
     """
     import random
     import copy
@@ -104,251 +104,221 @@ def solve_tsp(start_location, locations):
             if first in route and second in route:
                 if route.index(first) > route.index(second):
                     return False
-        
-        # Check if we can deliver all packages with this route
-        visited = set()
-        can_deliver = {}
-        
-        for loc in route:
-            visited.add(loc)
-            
-            # Check which packages we can pick up at this location
-            for pkg_id, pkg in package_map.items():
-                if pkg["pickup"] == loc:
-                    can_deliver[pkg_id] = False  # Picked up but not delivered
-            
-            # Check which packages we can deliver at this location
-            for pkg_id, pkg in package_map.items():
-                if pkg["delivery"] == loc and pkg_id in can_deliver and pkg["pickup"] in visited:
-                    can_deliver[pkg_id] = True
-        
-        # Ensure all packages can be delivered
-        return all(can_deliver.values()) if can_deliver else True
-    
-    # Calculate the cost of a route (distance + package handling)
-    def calculate_route_cost(route):
-        if not is_valid_route(route):
-            return float('inf')
-        
-        total_distance = 0
-        for i in range(len(route) - 1):
-            segment_distance = get_distance(route[i], route[i+1])
-            if segment_distance == float('inf'):
-                return float('inf')
-            total_distance += segment_distance
-        
-        # Add penalty for excessive route length
-        length_penalty = 0.1 * max(0, len(route) - len(all_locations) - 2)
-        
-        return total_distance * (1 + length_penalty)
+        return True
     
     # Convert a route of locations to a full action route with package operations
+    # Ensures all packages are handled
     def create_action_route(route):
         action_route = []
         visited = set()
         carrying_package = None
         
+        # Track packages that need to be picked up and delivered
+        packages_to_handle = {p["id"]: {"pickup": p["pickup"], "delivery": p["delivery"], "status": "waiting"} 
+                             for p in packages}
+        
+        # First add the starting location
+        if route[0] not in visited:
+            action_route.append({"location": route[0], "action": "visit", "package_id": None})
+            visited.add(route[0])
+        
+        # Process the route to handle packages
         for i, loc in enumerate(route):
-            visited.add(loc)
+            if loc not in visited:
+                action_route.append({"location": loc, "action": "visit", "package_id": None})
+                visited.add(loc)
             
-            # First, check if we can deliver a package
-            if carrying_package:
-                pkg = package_map[carrying_package]
+            # Check if we can pick up any packages at this location
+            pickups_at_location = [pkg_id for pkg_id, pkg in packages_to_handle.items() 
+                                  if pkg["pickup"] == loc and pkg["status"] == "waiting"]
+            
+            for pkg_id in pickups_at_location:
+                if carrying_package is None:  # Only pick up if not carrying anything
+                    action_route.append({"location": loc, "action": "pickup", "package_id": pkg_id})
+                    packages_to_handle[pkg_id]["status"] = "picked_up"
+                    carrying_package = pkg_id
+                    
+                    # Immediately check if we can deliver this package
+                    if loc == packages_to_handle[pkg_id]["delivery"]:
+                        action_route.append({"location": loc, "action": "deliver", "package_id": pkg_id})
+                        packages_to_handle[pkg_id]["status"] = "delivered"
+                        carrying_package = None
+            
+            # Check if we can deliver the package we're carrying
+            if carrying_package is not None:
+                pkg = packages_to_handle[carrying_package]
                 if pkg["delivery"] == loc:
                     action_route.append({"location": loc, "action": "deliver", "package_id": carrying_package})
+                    pkg["status"] = "delivered"
                     carrying_package = None
-                    continue
+        
+        # Check if we need to add more steps to handle all packages
+        unhandled_packages = [pkg_id for pkg_id, pkg in packages_to_handle.items() 
+                             if pkg["status"] != "delivered"]
+        
+        if unhandled_packages:
+            # If we still have unhandled packages, try to create a new route to handle them
+            remaining_locations = set()
+            for pkg_id in unhandled_packages:
+                pkg = packages_to_handle[pkg_id]
+                remaining_locations.add(pkg["pickup"])
+                remaining_locations.add(pkg["delivery"])
             
-            # If not delivering, check if we can pick up a package
-            if not carrying_package:
-                for pkg_id, pkg in package_map.items():
-                    if pkg["pickup"] == loc and pkg["delivery"] in set(route[i:]):
-                        # Only pick up if we'll visit the delivery location later
-                        action_route.append({"location": loc, "action": "pickup", "package_id": pkg_id})
-                        carrying_package = pkg_id
-                        break
+            # Create a route through remaining locations
+            current_loc = action_route[-1]["location"]
             
-            # If no package action, just visit
-            if (not action_route or action_route[-1]["location"] != loc or 
-                action_route[-1]["action"] not in ["pickup", "deliver"]):
-                action_route.append({"location": loc, "action": "visit", "package_id": None})
+            for pkg_id in unhandled_packages:
+                pkg = packages_to_handle[pkg_id]
+                
+                # Go to pickup if needed
+                if pkg["status"] == "waiting":
+                    if current_loc != pkg["pickup"]:
+                        action_route.append({"location": pkg["pickup"], "action": "visit", "package_id": None})
+                    action_route.append({"location": pkg["pickup"], "action": "pickup", "package_id": pkg_id})
+                    pkg["status"] = "picked_up"
+                    current_loc = pkg["pickup"]
+                
+                # Go to delivery
+                if current_loc != pkg["delivery"]:
+                    action_route.append({"location": pkg["delivery"], "action": "visit", "package_id": None})
+                action_route.append({"location": pkg["delivery"], "action": "deliver", "package_id": pkg_id})
+                pkg["status"] = "delivered"
+                current_loc = pkg["delivery"]
         
         return action_route
     
-    # ----- Begin the advanced TSP solution algorithm -----
-    
     # Start with a topological sort of locations based on constraints
     def get_topological_ordering():
-        # Create a default ordering that respects constraints
+        # Start with locations that have package pickups
+        pickup_locations = set(pkg["pickup"] for pkg in packages)
+        delivery_locations = set(pkg["delivery"] for pkg in packages)
+        
+        # Create an ordering that satisfies constraints
         result = []
-        visited = set()
         
-        def visit(node):
-            if node in visited:
-                return
-            visited.add(node)
-            if node in constraint_graph:
+        # First add locations with package pickups
+        for loc in all_locations:
+            if loc in pickup_locations and loc not in result:
+                result.append(loc)
+        
+        # Then add any remaining locations
+        for loc in all_locations:
+            if loc not in result:
+                result.append(loc)
+        
+        # Ensure the order satisfies constraints
+        valid_order = True
+        for first, second in constraint_pairs:
+            if first in result and second in result:
+                idx_first = result.index(first)
+                idx_second = result.index(second)
+                if idx_first > idx_second:
+                    valid_order = False
+                    break
+        
+        # If the order violates constraints, create a constraint-based ordering
+        if not valid_order:
+            result = []
+            visited = set()
+            
+            def visit(node):
+                if node in visited:
+                    return
+                visited.add(node)
+                if node in constraint_graph:
+                    for neighbor in constraint_graph[node]:
+                        if neighbor in all_locations:
+                            visit(neighbor)
+                result.append(node)
+            
+            # Start from nodes with no incoming edges
+            has_incoming = set()
+            for node in constraint_graph:
                 for neighbor in constraint_graph[node]:
-                    if neighbor in all_locations:
-                        visit(neighbor)
-            result.append(node)
+                    has_incoming.add(neighbor)
+            
+            for node in all_locations:
+                if node not in has_incoming:
+                    visit(node)
+            
+            # Add any remaining nodes
+            for node in all_locations:
+                if node not in visited:
+                    visit(node)
+            
+            # Reverse to get the correct order
+            result.reverse()
         
-        # Start from nodes with no incoming edges
-        has_incoming = set()
-        for node in constraint_graph:
-            for neighbor in constraint_graph[node]:
-                has_incoming.add(neighbor)
-        
-        for node in all_locations:
-            if node not in has_incoming:
-                visit(node)
-        
-        # Add any remaining nodes
-        for node in all_locations:
-            if node not in visited:
-                visit(node)
-        
-        # Reverse to get the correct order
-        result.reverse()
         return result
     
     initial_ordering = get_topological_ordering()
     
-    # Ensure start location is first and try to make a cycle
+    # Ensure start location is first 
     if start_location in initial_ordering:
         initial_ordering.remove(start_location)
     ordered_route = [start_location] + initial_ordering
     
-    # Try to optimize by swapping locations that don't violate constraints
-    def optimize_route(route, max_iterations=100):
-        best_route = route.copy()
-        best_cost = calculate_route_cost(best_route)
-        
-        current_route = route.copy()
-        current_cost = best_cost
-        
-        # Simulated annealing parameters
-        temperature = 10.0
-        cooling_rate = 0.95
-        
-        for iteration in range(max_iterations):
-            # Make a random swap that doesn't violate constraints
-            new_route = current_route.copy()
-            
-            # Try up to 10 times to find a valid swap
-            for attempt in range(10):
-                # Don't swap the starting position
-                i = random.randint(1, len(new_route) - 1)
-                j = random.randint(1, len(new_route) - 1)
-                
-                if i != j:
-                    new_route[i], new_route[j] = new_route[j], new_route[i]
-                    if is_valid_route(new_route):
-                        break
-                    else:
-                        # Revert invalid swap
-                        new_route[i], new_route[j] = new_route[j], new_route[i]
-            
-            # Calculate the cost of the new route
-            new_cost = calculate_route_cost(new_route)
-            
-            # Decide whether to accept the new route
-            if new_cost < current_cost:
-                # Always accept better solutions
-                current_route = new_route
-                current_cost = new_cost
-                
-                if new_cost < best_cost:
-                    best_route = new_route.copy()
-                    best_cost = new_cost
-            else:
-                # Probabilistically accept worse solutions based on temperature
-                delta = new_cost - current_cost
-                probability = min(1.0, math.exp(-delta / temperature))
-                
-                if random.random() < probability:
-                    current_route = new_route
-                    current_cost = new_cost
-            
-            # Cool down the temperature
-            temperature *= cooling_rate
-        
-        return best_route, best_cost
+    # Create action route that handles all packages
+    action_route = create_action_route(ordered_route)
     
-    # Run the optimization
-    try:
-        import math
-        optimized_route, optimized_cost = optimize_route(ordered_route, max_iterations=200)
-        
-        # Add return to start if beneficial
-        if start_location != optimized_route[-1]:
-            complete_route = optimized_route + [start_location]
-            complete_cost = calculate_route_cost(complete_route)
-            
-            if complete_cost < float('inf'):
-                optimized_route = complete_route
-                optimized_cost = complete_cost
-        
-        # Convert to action route
-        action_route = create_action_route(optimized_route)
-        
-        # Calculate the full path and distance
-        full_path = []
-        for loc in optimized_route:
-            if not full_path or full_path[-1] != loc:
-                full_path.append(loc)
-                
-        route_distance = 0
-        for i in range(len(full_path) - 1):
-            segment_distance = get_distance(full_path[i], full_path[i+1])
-            if segment_distance != float('inf'):
-                route_distance += segment_distance
-            else:
-                # Try to find a detour
-                segment_path, segment_distance = find_detour(full_path[i], full_path[i+1])
-                if segment_path and segment_distance < float('inf'):
-                    # Insert the intermediate points
-                    for j, waypoint in enumerate(segment_path[1:-1], 1):
-                        full_path.insert(i + j, waypoint)
-                    route_distance += segment_distance
-                else:
-                    return None, None, float('inf')
-        
-        # Ensure we've created a valid route
-        if action_route and full_path and route_distance < float('inf'):
-            return action_route, full_path, route_distance
-        
-    except Exception as e:
-        st.error(f"Route optimization error: {str(e)}")
+    # Extract the full path from the action route
+    full_path = []
+    for action in action_route:
+        loc = action["location"]
+        if not full_path or full_path[-1] != loc:
+            full_path.append(loc)
     
-    # If we get here, the advanced algorithm failed - fall back to simpler approach
-    # This is a simplified version to ensure we return something viable
+    # Calculate the total distance
+    total_distance = 0
+    for i in range(len(full_path) - 1):
+        segment_distance = get_distance(full_path[i], full_path[i+1])
+        if segment_distance == float('inf'):
+            segment_path, segment_distance = find_detour(full_path[i], full_path[i+1])
+        total_distance += segment_distance if segment_distance != float('inf') else 0
+    
+    # Ensure we created a valid route
+    if action_route and full_path and total_distance < float('inf'):
+        return action_route, full_path, total_distance
+    
+    # Fallback if we couldn't create a valid route
     fallback_route = []
     
     # Start at the start location
     current_location = start_location
     fallback_route.append({"location": current_location, "action": "visit", "package_id": None})
-    visited = {current_location}
     
-    # Visit Factory before Shop, DHL Hub before Residence
-    for loc_pair in [("Factory", "Shop"), ("DHL Hub", "Residence")]:
-        for loc in loc_pair:
-            if loc not in visited and loc in all_locations:
-                fallback_route.append({"location": loc, "action": "visit", "package_id": None})
-                visited.add(loc)
+    # Manually create a route that visits all locations and handles all packages
+    for pkg in packages:
+        pickup_loc = pkg["pickup"]
+        delivery_loc = pkg["delivery"]
+        
+        # Go to pickup location if not already there
+        if current_location != pickup_loc:
+            fallback_route.append({"location": pickup_loc, "action": "visit", "package_id": None})
+        
+        # Pick up the package
+        fallback_route.append({"location": pickup_loc, "action": "pickup", "package_id": pkg["id"]})
+        
+        # Go to delivery location if not already there
+        if pickup_loc != delivery_loc:
+            fallback_route.append({"location": delivery_loc, "action": "visit", "package_id": None})
+        
+        # Deliver the package
+        fallback_route.append({"location": delivery_loc, "action": "deliver", "package_id": pkg["id"]})
+        
+        current_location = delivery_loc
     
     # Visit any remaining locations
     for loc in all_locations:
-        if loc not in visited:
+        if loc not in [action["location"] for action in fallback_route]:
             fallback_route.append({"location": loc, "action": "visit", "package_id": None})
-            visited.add(loc)
-    
-    # Return to start if needed
-    if fallback_route[0]["location"] != fallback_route[-1]["location"]:
-        fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
     
     # Create the full path for fallback
-    fallback_path = [action["location"] for action in fallback_route]
+    fallback_path = []
+    for action in fallback_route:
+        loc = action["location"]
+        if not fallback_path or fallback_path[-1] != loc:
+            fallback_path.append(loc)
     
     # Calculate distance
     fallback_distance = 0
