@@ -100,64 +100,44 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 opacity=0.8
             )
 
-    # Optimal Route: Draw as a sequential path with numbered steps
+    # Optimal Route: Fixed to draw as a sequential path
     if (optimal_route and len(optimal_route) > 1 and (route_type == "both" or route_type == "optimal")):
-        # Create a data structure for drawing the optimal route with proper sequencing
-        optimal_path_steps = []
-        
-        # Process each step in the route sequence
+        # Draw each segment of the optimal route in sequence
         for i in range(len(optimal_route) - 1):
-            from_loc = optimal_route[i]
-            to_loc = optimal_route[i+1]
+            loc1 = optimal_route[i]
+            loc2 = optimal_route[i+1]
+            x0, y0 = LOCATIONS[loc1]["position"]
+            x1, y1 = LOCATIONS[loc2]["position"]
             
-            # Get positions
-            x0, y0 = LOCATIONS[from_loc]["position"]
-            x1, y1 = LOCATIONS[to_loc]["position"]
+            # Apply consistent offset for optimal route
+            y0_offset = y0 - 8
+            y1_offset = y1 - 8
             
-            # Apply offset to visually separate repeated segments
-            offset = get_offset(optimal_route, i, i+1)
-            y0_offset = y0 - offset
-            y1_offset = y1 - offset
-            
-            # Store step information
-            optimal_path_steps.append({
-                'from': from_loc,
-                'to': to_loc,
-                'x0': x0,
-                'y0': y0_offset,
-                'x1': x1,
-                'y1': y1_offset,
-                'step': i+1
-            })
-        
-        # Draw each step of the path sequentially
-        for step_info in optimal_path_steps:
-            # Draw the line segment
+            # Add sequential line segment
             fig.add_trace(go.Scatter(
-                x=[step_info['x0'], step_info['x1']], 
-                y=[step_info['y0'], step_info['y1']], 
+                x=[x0, x1], y=[y0_offset, y1_offset], 
                 mode='lines+markers',
                 line=dict(color='#0466c8', width=line_width, 
                          dash='dot' if route_type == "both" else None),
                 marker=dict(size=10, symbol='circle-open' if route_type == "both" else "circle", 
                            color='#0466c8', line=dict(color='#0466c8', width=2)),
-                name=f'Optimal Route Step {step_info["step"]}' if step_info["step"] == 1 else None,
-                showlegend=(step_info["step"] == 1),
+                name=f'Optimal Route Step {i+1}' if i == 0 else None,
+                showlegend=(i == 0),
                 hoverinfo='text', 
-                hovertext=f"Step {step_info['step']}: {step_info['from']} → {step_info['to']}"
+                hovertext=f"Step {i+1}: {loc1} → {loc2}"
             ))
             
-            # Add arrow showing direction
-            dx = step_info['x1'] - step_info['x0']
-            dy = step_info['y1'] - step_info['y0']
+            # Add arrow
+            dx = x1 - x0
+            dy = y1_offset - y0_offset
             length = np.sqrt(dx**2 + dy**2)
             
             if length > 0:
                 dx, dy = dx / length, dy / length
-                arrow_x = step_info['x1'] - dx * 15
-                arrow_y = step_info['y1'] - dy * 15
-                ref_x = step_info['x1'] - dx * 25
-                ref_y = step_info['y1'] - dy * 25
+                arrow_x = x1 - dx * 15
+                arrow_y = y1_offset - dy * 15
+                ref_x = x1 - dx * 25
+                ref_y = y1_offset - dy * 25
                 
                 fig.add_annotation(
                     x=arrow_x, y=arrow_y,
@@ -168,12 +148,12 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 )
             
             # Add sequence number
-            mid_x = (step_info['x0'] + step_info['x1']) / 2 + (5 if dx > 0 else -5)
-            mid_y = (step_info['y0'] + step_info['y1']) / 2
+            mid_x = (x0 + x1) / 2 + (5 if dx > 0 else -5)
+            mid_y = (y0_offset + y1_offset) / 2
             
             fig.add_annotation(
                 x=mid_x, y=mid_y,
-                text=f"{step_info['step']}",
+                text=f"{i+1}",
                 showarrow=False,
                 font=dict(size=10, color="white"),
                 bgcolor="#0466c8",
