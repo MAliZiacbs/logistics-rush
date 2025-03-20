@@ -22,6 +22,59 @@ def update_difficulty_display(num_actual_closures):
     # This will be used for display purposes
     st.session_state.actual_num_closures = num_actual_closures
 
+def validate_optimal_route(route, path, packages):
+    """
+    Validates that the optimal route satisfies all requirements:
+    - Handles all packages
+    - Satisfies all constraints
+    - Forms a valid path with no impossible segments
+    
+    Returns True if valid, False otherwise
+    """
+    if not route or not path:
+        return False
+    
+    # Collect all package IDs that are handled in the route
+    handled_packages = set()
+    carrying = None
+    
+    for action in route:
+        if action["action"] == "pickup":
+            if carrying is not None:
+                return False  # Can't carry more than one package
+            carrying = action["package_id"]
+            handled_packages.add(action["package_id"])
+        elif action["action"] == "deliver":
+            if carrying != action["package_id"]:
+                return False  # Can't deliver what we're not carrying
+            carrying = None
+    
+    # All packages should be handled
+    if len(handled_packages) != len(packages):
+        return False
+    
+    # Check if path satisfies sequence constraints
+    if "Factory" in path and "Shop" in path:
+        f_idx = path.index("Factory")
+        s_idx = path.index("Shop")
+        if f_idx > s_idx:
+            return False  # Factory must come before Shop
+    
+    if "DHL Hub" in path and "Residence" in path:
+        d_idx = path.index("DHL Hub")
+        r_idx = path.index("Residence")
+        if d_idx > r_idx:
+            return False  # DHL Hub must come before Residence
+    
+    # Check if all path segments are valid (no infinite distances)
+    for i in range(len(path) - 1):
+        _, distance = calculate_segment_path(path[i], path[i+1])
+        if distance == float('inf'):
+            return False
+    
+    # If we passed all checks, the route is valid
+    return True
+
 def start_new_game():
     """Start a new game with all features combined"""
     st.session_state.game_active = True
@@ -76,47 +129,11 @@ def start_new_game():
     optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
     
     # Verify the optimal route is valid and all packages can be delivered
-    valid_optimal = True
-    if optimal_route:
-        # Check if all packages are handled
-        handled_packages = set()
-        for action in optimal_route:
-            if action["action"] in ["pickup", "deliver"] and action["package_id"] is not None:
-                handled_packages.add(action["package_id"])
-        
-        if len(handled_packages) != len(st.session_state.packages):
-            valid_optimal = False
-            st.warning("Optimal route doesn't handle all packages. Using fallback.")
-    else:
-        valid_optimal = False
-        st.warning("Optimal route calculation failed. Using fallback route.")
+    valid_optimal = validate_optimal_route(optimal_route, optimal_path, st.session_state.packages)
     
-    # Create a fallback route if needed
     if not valid_optimal:
-        # Create a fallback route that ensures all constraints are met and all packages can be delivered
-        fallback_route = []
-        
-        # Make sure Factory comes before Shop and DHL Hub before Residence
-        for loc in ["Factory", "DHL Hub", "Shop", "Residence"]:
-            fallback_route.append({"location": loc, "action": "visit", "package_id": None})
-        
-        # Add the start location at the end to complete the route
-        if fallback_route[0]["location"] != start_location:
-            fallback_route.insert(0, {"location": start_location, "action": "visit", "package_id": None})
-        
-        # Calculate path and distance for the fallback route
-        fallback_path, optimal_distance = calculate_route_distance([r["location"] for r in fallback_route])
-        
-        if fallback_path:
-            optimal_route = fallback_route
-            optimal_path = fallback_path
-        else:
-            # If even the fallback fails, create a simple route with just the locations
-            optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in locations_to_visit]
-            optimal_path = locations_to_visit
-            optimal_distance = sum(get_distance(locations_to_visit[i], locations_to_visit[i+1]) 
-                                 for i in range(len(locations_to_visit)-1))
-
+        st.warning("Optimal route calculation encountered challenges. Using best available solution.")
+    
     st.session_state.optimal_route = optimal_route
     st.session_state.optimal_path = optimal_path if optimal_path else ["Factory"]
     st.session_state.optimal_distance = optimal_distance if optimal_distance != float('inf') else 0

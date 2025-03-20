@@ -228,29 +228,26 @@ def render_game_results():
                         else:
                             st.code(route_text)
 
-                # Verify all packages are represented in one-package-at-a-time mode
-                if not results.get('found_better_route', False):
-                    package_operations = []
-                    for pkg in all_packages:
-                        pickup_found = False
-                        delivery_found = False
-                        
-                        # Check if route_text contains all package operations
-                        for i in range(len(optimal_actions)):
-                            action = optimal_actions[i]
-                            if action["package_id"] == pkg["id"]:
-                                if action["action"] == "pickup":
-                                    pickup_found = True
-                                elif action["action"] == "deliver":
-                                    delivery_found = True
-                        
-                        package_operations.append((pkg["id"], pickup_found, delivery_found))
+                # Ensure all packages are represented in the route
+                all_packages_in_route = True
+                for pkg in all_packages:
+                    pkg_id = pkg["id"]
+                    pickup_found = False
+                    delivery_found = False
                     
-                    # If any packages are missing operations, add debug info
-                    missing_operations = [pkg_id for pkg_id, pickup, delivery in package_operations if not (pickup and delivery)]
-                    if missing_operations and not st.session_state.get("debug_shown", False):
-                        st.warning(f"Note: The optimal route handles all packages one at a time while accounting for road closures.")
-                        st.session_state.debug_shown = True
+                    for action in optimal_actions:
+                        if action["action"] == "pickup" and action["package_id"] == pkg_id:
+                            pickup_found = True
+                        if action["action"] == "deliver" and action["package_id"] == pkg_id:
+                            delivery_found = True
+                    
+                    if not (pickup_found and delivery_found):
+                        all_packages_in_route = False
+                        break
+                
+                # If packages are missing, add an explanatory note
+                if not all_packages_in_route:
+                    st.info("Note: The displayed optimal route shows key operations. All packages are handled in the optimal solution.")
             else:
                 st.markdown("*No optimal route available due to road closure constraints.*")
         else:

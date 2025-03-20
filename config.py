@@ -171,7 +171,7 @@ STYLES = """
 # Centralized constraint checking function - unchanged
 def check_constraints(route):
     """
-    Check if a route follows the game'sರ
+    Check if a route follows the game's constraints.
 
     Returns True if constraints are met, False otherwise.
     """

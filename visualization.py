@@ -8,7 +8,6 @@ from routing import get_distance, suggest_next_location
 from feature_road_closures import is_road_closed
 from feature_packages import get_available_packages_at_location, get_package_hints
 from game_engine import process_location_checkin, pickup_package, get_game_status, get_completion_summary
-from visualization_renders import render_action_controls, render_game_info, render_game_results
 
 def visualize_map(player_route=None, optimal_route=None, constraints=None, show_roads=True, route_type="both"):
     """Create a clean, professional visual map with improved route display and road closure handling."""
