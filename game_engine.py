@@ -29,10 +29,27 @@ def start_new_game():
         "Residence": "Must visit after DHL Hub"
     }
     
-    # Generate road closures first so the optimal route can account for them
-    st.session_state.closed_roads = generate_road_closures(num_closures=1)
+    # First generate packages
     st.session_state.packages = generate_packages(num_packages=3)
     st.session_state.total_packages = len(st.session_state.packages)
+    
+    # Get the number of road closures based on difficulty (default to 1 if not set)
+    num_closures = st.session_state.get('num_road_closures', 1)
+    
+    # Generate road closures based on selected difficulty
+    st.session_state.closed_roads = generate_road_closures(num_closures=num_closures)
+    
+    # Display message about difficulty
+    if num_closures == 1:
+        st.info(f"Easy mode: 1 road closure generated.")
+    elif num_closures == 2:
+        st.info(f"Medium mode: {len(st.session_state.closed_roads)} road closures generated.")
+    else:
+        st.info(f"Hard mode: {len(st.session_state.closed_roads)} road closures generated.")
+    
+    # If no closures were possible, let the player know
+    if len(st.session_state.closed_roads) == 0:
+        st.warning("No road closures were possible while ensuring all packages could be delivered.")
 
     # Try to find an optimal route with the improved algorithm
     optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
@@ -277,7 +294,8 @@ def end_game():
             "constraints": constraint_factor,
             "score": player_score,
             "route": st.session_state.current_route.copy(),
-            "found_better_route": player_found_better_route
+            "found_better_route": player_found_better_route,
+            "num_road_closures": len(st.session_state.closed_roads)
         }
         save_player_data(result_data)
     
@@ -294,7 +312,8 @@ def end_game():
         "constraints_followed": constraints_followed,
         "optimal_score": optimal_score,
         "improvement_percent": improvement_percent,
-        "found_better_route": player_found_better_route
+        "found_better_route": player_found_better_route,
+        "difficulty": len(st.session_state.closed_roads)
     }
     st.session_state.game_results = results
     return results
@@ -330,5 +349,6 @@ def get_completion_summary():
         "total_packages": total_packages,
         "remaining_packages": remaining_packages,
         "constraints_followed": constraints_followed,
-        "constraint_issues": constraint_issues
+        "constraint_issues": constraint_issues,
+        "num_road_closures": len(st.session_state.closed_roads)
     }

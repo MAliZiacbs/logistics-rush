@@ -238,8 +238,14 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
 
     # Additional annotations
     if show_roads and hasattr(st.session_state, 'closed_roads') and st.session_state.closed_roads:
-        fig.add_annotation(x=150, y=40, text="⛔️ ROAD CLOSURE", showarrow=False, 
-                           font=dict(size=12, color="#EF4444", weight="bold"), 
+        num_closures = len(st.session_state.closed_roads)
+        difficulty_label = "EASY" if num_closures == 1 else "MEDIUM" if num_closures == 2 else "HARD"
+        closure_color = "#f97316" if num_closures == 1 else "#ef4444" if num_closures == 2 else "#7f1d1d"
+        
+        fig.add_annotation(x=150, y=40, 
+                           text=f"⛔️ {difficulty_label}: {num_closures} ROAD CLOSURE{'S' if num_closures > 1 else ''}", 
+                           showarrow=False, 
+                           font=dict(size=12, color=closure_color, weight="bold"), 
                            bgcolor="rgba(255,255,255,0.8)", borderpad=3)
     
     if not show_roads:
@@ -331,6 +337,12 @@ def render_game_info():
         st.markdown("• Factory → Shop")
         st.markdown("• DHL Hub → Residence")
         st.markdown("• One package at a time")
+        # Add difficulty info
+        if hasattr(st.session_state, 'closed_roads'):
+            num_closures = len(st.session_state.closed_roads)
+            difficulty = "Easy" if num_closures == 1 else "Medium" if num_closures == 2 else "Hard"
+            st.markdown(f"• **Difficulty:** {difficulty} ({num_closures} closure{'s' if num_closures > 1 else ''})")
+            
         st.markdown('</div>', unsafe_allow_html=True)
     if st.session_state.current_route:
         current_loc = st.session_state.current_route[-1]
@@ -385,7 +397,11 @@ def render_game_results():
     
     st.markdown("### Challenge Results")
     st.metric("Optimal Score", f"{results['optimal_score']}")
-    
+    # Show difficulty level based on number of road closures
+    if 'difficulty' in results:
+        num_closures = results['difficulty']
+        difficulty = "Easy" if num_closures == 1 else "Medium" if num_closures == 2 else "Hard"
+        st.markdown(f"**Difficulty Level:** {difficulty} ({num_closures} road closure{'s' if num_closures > 1 else ''})")
     # Show improvement percentage differently if player found the optimal route
     improvement = results['improvement_percent']
     if results.get('found_better_route', False) or improvement <= 0:

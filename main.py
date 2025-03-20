@@ -81,6 +81,9 @@ if 'delivered_packages' not in st.session_state:
 if 'total_packages' not in st.session_state:
     st.session_state.total_packages = 0
 
+if 'num_road_closures' not in st.session_state:
+    st.session_state.num_road_closures = 1
+
 # Main UI
 st.markdown('<h1 class="main-title">🚚 Logistics Rush</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe_allow_html=True)
@@ -148,6 +151,22 @@ with tab1:
                 company = st.text_input("Company")
                 st.subheader("Game Challenge")
                 st.markdown(GAME_MODES["Logistics Challenge"]["description"])
+                
+                # Add difficulty selector based on road closures
+                difficulty = st.radio("Select Difficulty Level", 
+                                    ["Easy (1 road closure)", 
+                                     "Medium (2 road closures)", 
+                                     "Hard (3 road closures)"],
+                                    index=0)
+                
+                # Extract number of road closures from selection
+                if "Easy" in difficulty:
+                    num_closures = 1
+                elif "Medium" in difficulty:
+                    num_closures = 2
+                else:
+                    num_closures = 3
+                
                 submit = st.form_submit_button("Start Game", type="primary")
                 if submit:
                     if not name or not email:
@@ -159,6 +178,7 @@ with tab1:
                             "company": company
                         }
                         st.session_state.game_mode = "Logistics Challenge"
+                        st.session_state.num_road_closures = num_closures
                         start_new_game()
                         st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
@@ -209,12 +229,29 @@ with tab3:
     st.subheader("How to Play Logistics Rush")
     st.markdown("""
     ### Game Overview
-    Logistics Rush is an interactive supply chain optimization game. Navigate a Sphero Bolt+ robot through a physical map to complete deliveries.
+    Logistics Rush is an interactive supply chain optimization game. Navigate between locations to complete package deliveries while navigating road closures.
 
     ### Basic Gameplay
-    1. **Register** with your details
+    1. **Register** with your details and select difficulty level
     2. **Navigate** starting from the Factory
-    3. **Overcome** road closures (limited to 1)
+    3. **Overcome** road closures (1-3 depending on difficulty)
     4. **Deliver** packages while following constraints
     5. **Complete** to see your score
+
+    ### Difficulty Levels
+    - **Easy**: 1 road closure
+    - **Medium**: 2 road closures
+    - **Hard**: 3 road closures
+
+    ### Rules & Constraints
+    - You can only carry one package at a time
+    - Factory must be visited before Shop
+    - DHL Hub must be visited before Residence
+    - All locations must be visited
+    - All packages must be delivered
+    
+    ### Scoring
+    Your score is based on efficiency (40%), package delivery (30%), following constraints (20%), and time (10%).
+    
+    Try to find a more efficient route than the AI's calculated optimal path to earn a perfect efficiency score!
     """)
