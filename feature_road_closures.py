@@ -28,7 +28,29 @@ def validate_package_delivery(G, packages):
     if not nx.has_path(G, "Factory", "Shop") or not nx.has_path(G, "DHL Hub", "Residence"):
         return False
     
-    return True
+    # NEW: Check if a valid sequence exists that respects all constraints
+    # Create a directed graph for constraint checking
+    constraint_G = nx.DiGraph()
+    for loc in G.nodes():
+        constraint_G.add_node(loc)
+    
+    # Add edges for existing paths in the undirected graph
+    for u, v in G.edges():
+        constraint_G.add_edge(u, v)
+        constraint_G.add_edge(v, u)  # Since G is undirected
+    
+    # Add constraint edges (these are directed)
+    constraint_G.add_edge("Factory", "Shop")
+    constraint_G.add_edge("DHL Hub", "Residence")
+    
+    # Check if the constrained graph has cycles
+    try:
+        nx.find_cycle(constraint_G)
+        # If a cycle is found, the constraints cannot be satisfied
+        return False
+    except nx.NetworkXNoCycle:
+        # No cycle means constraints can be satisfied
+        return True
 
 def generate_road_closures(num_closures=1, max_attempts=100):
     """
@@ -65,7 +87,7 @@ def generate_road_closures(num_closures=1, max_attempts=100):
             # Remove the edge
             test_G.remove_edge(road[0], road[1])
             
-            # Check if graph is still connected and all packages can be delivered
+            # Check if graph is still connected and all packages can be delivered with constraints satisfied
             if nx.is_connected(test_G) and validate_package_delivery(test_G, packages):
                 closed_roads.append(road)
                 if len(closed_roads) >= num_closures:
