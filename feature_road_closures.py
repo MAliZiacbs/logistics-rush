@@ -11,11 +11,15 @@ def is_road_closed(loc1, loc2):
         return False
     return (loc1, loc2) in st.session_state.closed_roads or (loc2, loc1) in st.session_state.closed_roads
 
+# Enhanced validation function for feature_road_closures.py
+
 def validate_package_delivery(G, packages):
     """
     Validate if all packages can be delivered with the given graph
     Returns True if all packages can be delivered, False otherwise
     """
+    import networkx as nx
+    
     # Check if all pickup and delivery locations are connected
     for pkg in packages:
         pickup = pkg["pickup"]
@@ -28,34 +32,85 @@ def validate_package_delivery(G, packages):
     if not nx.has_path(G, "Factory", "Shop") or not nx.has_path(G, "DHL Hub", "Residence"):
         return False
     
-    # Simplified validation that prevents deadlocks:
-    # Ensure that we can go from Factory to DHL Hub while respecting the Factory→Shop constraint
-    # This prevents the specific deadlock situation observed
+    # Advanced test for hard mode with multiple closures
+    # Test if it's possible to do a full route that satisfies all constraints
     
-    # Case 1: Check if we can go from Factory to DHL Hub without going through Shop
-    test_G = G.copy()
-    if "Shop" in test_G.nodes():
-        test_G.remove_node("Shop")
+    # Create a test route that would need to satisfy all constraints:
+    # Factory → DHL Hub → Shop → Residence → Factory (complete loop)
+    test_route = ["Factory", "DHL Hub", "Shop", "Residence", "Factory"]
     
-    if not nx.has_path(test_G, "Factory", "DHL Hub"):
-        # If we can't go from Factory to DHL Hub without Shop, and
-        # we know the constraint is Factory before Shop, check if we can
-        # go Factory→Shop→DHL Hub
-        if not nx.has_path(G, "Shop", "DHL Hub"):
+    # Check if each segment in this route has a path with current closures
+    for i in range(len(test_route) - 1):
+        if not nx.has_path(G, test_route[i], test_route[i+1]):
             return False
     
-    # Case 2: Check if we can go from DHL Hub to Shop without going through Residence
-    test_G = G.copy()
-    if "Residence" in test_G.nodes():
-        test_G.remove_node("Residence")
+    # Also check critical routes for package delivery scenarios
+    critical_paths = [
+        # Critical Factory → Shop path (direct or via DHL Hub/Residence)
+        ["Factory", "Shop"],  
+        # Critical DHL Hub → Residence path (direct or via Factory/Shop)
+        ["DHL Hub", "Residence"],
+        # Must be able to get from Factory to DHL Hub (might need to go via Shop)
+        ["Factory", "DHL Hub"],
+        # Must be able to get from Shop to Residence (might need to go via DHL Hub)
+        ["Shop", "Residence"]
+    ]
     
-    if not nx.has_path(test_G, "DHL Hub", "Shop"):
-        # If we can't go from DHL Hub to Shop without Residence, and
-        # we know the constraint is DHL Hub before Residence, check if we can
-        # go DHL Hub→Residence→Shop
-        if not nx.has_path(G, "Residence", "Shop"):
+    for path in critical_paths:
+        if not nx.has_path(G, path[0], path[1]):
             return False
     
+    # Explicitly test more package delivery scenarios
+    # Scenario 1: Deliver a package from Factory to Shop while respecting constraints
+    # We're at Factory and need to get to Shop
+    # If direct route is closed, we need to find a valid detour
+    if not nx.has_path(G, "Factory", "Shop"):
+        # Try to find a valid detour that respects constraints
+        # Since Factory must come before Shop, we can only go via DHL Hub/Residence if needed
+        factory_to_shop_path = False
+        
+        # Check if we can go Factory → DHL Hub → Shop
+        if nx.has_path(G, "Factory", "DHL Hub") and nx.has_path(G, "DHL Hub", "Shop"):
+            factory_to_shop_path = True
+        
+        # Or check if we can go Factory → DHL Hub → Residence → Shop
+        # This is valid because we visit DHL Hub before Residence
+        elif (nx.has_path(G, "Factory", "DHL Hub") and 
+              nx.has_path(G, "DHL Hub", "Residence") and 
+              nx.has_path(G, "Residence", "Shop")):
+            factory_to_shop_path = True
+        
+        if not factory_to_shop_path:
+            return False
+    
+    # Scenario 2: Deliver a package from DHL Hub to Residence while respecting constraints
+    # We're at DHL Hub and need to get to Residence
+    # If direct route is closed, we need to find a valid detour
+    if not nx.has_path(G, "DHL Hub", "Residence"):
+        # Try to find a valid detour that respects constraints
+        # Since DHL Hub must come before Residence, we can only go via Factory/Shop if needed
+        dhl_to_residence_path = False
+        
+        # Check if we can go DHL Hub → Factory → Residence
+        if nx.has_path(G, "DHL Hub", "Factory") and nx.has_path(G, "Factory", "Residence"):
+            dhl_to_residence_path = True
+        
+        # Or check if we can go DHL Hub → Factory → Shop → Residence
+        # This is valid because Factory must come before Shop
+        elif (nx.has_path(G, "DHL Hub", "Factory") and 
+              nx.has_path(G, "Factory", "Shop") and 
+              nx.has_path(G, "Shop", "Residence")):
+            dhl_to_residence_path = True
+        
+        # Or check if we can go DHL Hub → Shop → Residence
+        # (This assumes we've already been to Factory before going to Shop)
+        elif nx.has_path(G, "DHL Hub", "Shop") and nx.has_path(G, "Shop", "Residence"):
+            dhl_to_residence_path = True
+        
+        if not dhl_to_residence_path:
+            return False
+    
+    # If all tests pass, the graph is valid
     return True
 
 def generate_road_closures(num_closures=1, max_attempts=100):
@@ -112,115 +167,75 @@ def generate_road_closures(num_closures=1, max_attempts=100):
             return closed_roads
     
     # If we couldn't find the requested number of closures, use preset safe closures
-    # Define a larger set of potentially safe closures
-    all_safe_closures = [
-        ("Factory", "Residence"),
-        ("Factory", "DHL Hub"),
-        ("Shop", "Residence"),
-        ("DHL Hub", "Shop"),
-        ("Shop", "Factory"),
-        ("Residence", "Factory")
+    # Use pre-defined road closure combinations that we know work
+    
+    # Easy mode (1 closure)
+    easy_closures = [
+        [("Factory", "Residence")],
+        [("Shop", "Residence")],
+        [("Factory", "Shop")]
     ]
     
-    # Shuffle these for variety
-    random.shuffle(all_safe_closures)
+    # Medium mode (2 closures)
+    medium_closures = [
+        [("Factory", "Residence"), ("Shop", "Residence")],
+        [("Factory", "DHL Hub"), ("Factory", "Residence")],
+        [("Factory", "Shop"), ("DHL Hub", "Residence")]
+    ]
     
-    # Filter to make sure these roads actually exist in our model
-    valid_safe_closures = [road for road in all_safe_closures if road in ROAD_SEGMENTS 
-                        or (road[1], road[0]) in ROAD_SEGMENTS]
-    
-    # Create a graph to validate these safe closures in combination
-    valid_and_tested_closures = []
-    
-    # Start with an empty set of closures and add them one by one if they're valid
-    for safe_road in valid_safe_closures:
-        if len(valid_and_tested_closures) >= num_closures:
-            break
-            
-        # Normalize the road direction to match ROAD_SEGMENTS
-        normalized_road = safe_road
-        if safe_road not in ROAD_SEGMENTS and (safe_road[1], safe_road[0]) in ROAD_SEGMENTS:
-            normalized_road = (safe_road[1], safe_road[0])
-            
-        # Test adding this closure
-        test_G = G.copy()
-        for road in valid_and_tested_closures:
-            test_G.remove_edge(road[0], road[1])
+    # Hard mode (3 closures) - these are carefully selected to avoid deadlocks
+    hard_closures = [
+        # Configuration 1: Creates a challenging but solvable route
+        [("Factory", "DHL Hub"), ("Shop", "Residence"), ("Factory", "Residence")],
         
-        test_G.remove_edge(normalized_road[0], normalized_road[1])
+        # Configuration 2: Another solvable arrangement
+        [("Factory", "Shop"), ("DHL Hub", "Shop"), ("Factory", "Residence")],
         
-        # Validate the combined closures
-        if nx.is_connected(test_G) and validate_package_delivery(test_G, packages):
-            valid_and_tested_closures.append(normalized_road)
+        # Configuration 3: Forces a specific path that works
+        [("Factory", "Residence"), ("Shop", "Residence"), ("DHL Hub", "Factory")]
+    ]
     
-    # If we still don't have enough, create guaranteed safe combinations
-    if len(valid_and_tested_closures) < num_closures:
-        if num_closures >= 3:  # Hard mode
-            # Define several combinations that we know work for Hard mode
-            hard_mode_combinations = [
-                [("Factory", "Residence"), ("Factory", "Shop"), ("DHL Hub", "Residence")],
-                [("Factory", "DHL Hub"), ("Shop", "Residence"), ("Factory", "Residence")],
-                [("Factory", "Residence"), ("DHL Hub", "Shop"), ("Factory", "Shop")]
-            ]
-            # Pick a random combination and use it
-            chosen_combo = random.choice(hard_mode_combinations)
-            # Filter for valid roads again just to be safe
-            valid_combo = [road for road in chosen_combo if road in ROAD_SEGMENTS 
-                         or (road[1], road[0]) in ROAD_SEGMENTS]
-            # Normalize the roads
-            normalized_combo = []
-            for road in valid_combo:
-                if road in ROAD_SEGMENTS:
-                    normalized_combo.append(road)
-                elif (road[1], road[0]) in ROAD_SEGMENTS:
-                    normalized_combo.append((road[1], road[0]))
-            
-            valid_and_tested_closures = normalized_combo[:num_closures]
-            
-        elif num_closures >= 2:  # Medium mode
-            # Define several combinations that we know work for Medium mode
-            medium_mode_combinations = [
-                [("Factory", "Residence"), ("Factory", "Shop")],
-                [("Factory", "DHL Hub"), ("Shop", "Residence")],
-                [("Factory", "Residence"), ("DHL Hub", "Shop")]
-            ]
-            # Pick a random combination and use it
-            chosen_combo = random.choice(medium_mode_combinations)
-            # Filter for valid roads again just to be safe
-            valid_combo = [road for road in chosen_combo if road in ROAD_SEGMENTS 
-                         or (road[1], road[0]) in ROAD_SEGMENTS]
-            # Normalize the roads
-            normalized_combo = []
-            for road in valid_combo:
-                if road in ROAD_SEGMENTS:
-                    normalized_combo.append(road)
-                elif (road[1], road[0]) in ROAD_SEGMENTS:
-                    normalized_combo.append((road[1], road[0]))
-            
-            valid_and_tested_closures = normalized_combo[:num_closures]
-            
-        else:  # Easy mode - just one closure
-            easy_closures = [
-                ("Factory", "Residence"),
-                ("Factory", "DHL Hub"),
-                ("Shop", "Residence")
-            ]
-            random.shuffle(easy_closures)
-            for road in easy_closures:
-                if road in ROAD_SEGMENTS:
-                    valid_and_tested_closures = [road]
-                    break
-                elif (road[1], road[0]) in ROAD_SEGMENTS:
-                    valid_and_tested_closures = [(road[1], road[0])]
-                    break
+    # Select the appropriate preset based on difficulty
+    if num_closures >= 3:  # Hard
+        preset_closures = random.choice(hard_closures)
+    elif num_closures >= 2:  # Medium
+        preset_closures = random.choice(medium_closures)
+    else:  # Easy
+        preset_closures = random.choice(easy_closures)
     
-    # Make sure we return exactly the number of closures requested
-    result = valid_and_tested_closures[:num_closures]
+    # Normalize the roads to match ROAD_SEGMENTS format
+    result = []
+    for road in preset_closures:
+        if road in ROAD_SEGMENTS:
+            result.append(road)
+        elif (road[1], road[0]) in ROAD_SEGMENTS:
+            result.append((road[1], road[0]))
     
-    # If we still don't have enough, duplicate some (better than having too few)
-    if len(result) < num_closures and len(result) > 0:
-        while len(result) < num_closures:
-            result.append(result[0])  # Duplicate the first closure as a last resort
+    # Limit to requested number (shouldn't be needed, but just to be safe)
+    result = result[:num_closures]
+    
+    # If we still don't have enough, add some that we know are safe
+    if len(result) < num_closures:
+        safe_additions = [
+            ("Factory", "Residence"),
+            ("Shop", "Residence"),
+            ("Factory", "Shop")
+        ]
+        
+        # Add from safe_additions until we have enough
+        for road in safe_additions:
+            if len(result) >= num_closures:
+                break
+                
+            # Skip if already closed
+            if road in result or (road[1], road[0]) in result:
+                continue
+                
+            # Add if it exists in ROAD_SEGMENTS
+            if road in ROAD_SEGMENTS:
+                result.append(road)
+            elif (road[1], road[0]) in ROAD_SEGMENTS:
+                result.append((road[1], road[0]))
     
     st.session_state.closed_roads = result
     return result
