@@ -170,6 +170,10 @@ def strategic_package_handling(route, packages):
     # Handle circular imports
     from routing import calculate_total_distance, get_distance
     
+    # Make sure route is not empty
+    if not route or len(route) == 0:
+        return route
+    
     loc_route = route if isinstance(route[0], str) else [r["location"] for r in route]
     
     # Create a graph to find optimal paths between locations
@@ -187,10 +191,16 @@ def strategic_package_handling(route, packages):
         location_packages[loc] = []
     
     for pkg in packages:
-        location_packages[pkg["pickup"]].append(pkg)
+        if pkg["pickup"] in location_packages:
+            location_packages[pkg["pickup"]].append(pkg)
     
     # Try to optimize the route by looking at package-handling opportunities
     optimized_route = loc_route.copy()
+    
+    # If the route is too short, no optimization is needed
+    if len(optimized_route) <= 1:
+        return optimized_route
+        
     improvement_found = True
     
     # Limit optimization iterations
@@ -202,7 +212,7 @@ def strategic_package_handling(route, packages):
         current_iteration += 1
         
         # Look for opportunities to optimize each package pickup-delivery pair
-        for i in range(len(optimized_route) - 1):
+        for i in range(len(optimized_route) - 1):  # This should be safe now
             current_loc = optimized_route[i]
             
             # Check if there are packages at this location
