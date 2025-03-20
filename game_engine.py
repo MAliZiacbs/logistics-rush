@@ -75,8 +75,11 @@ def validate_optimal_route(route, path, packages):
     # If we passed all checks, the route is valid
     return True
 
+# This is a patch for game_engine.py
+# Update the start_new_game function to better handle road closures
+
 def start_new_game():
-    """Start a new game with all features combined"""
+    """Start a new game with all features combined - with improved error handling"""
     st.session_state.game_active = True
     st.session_state.start_time = time.time()
     
@@ -103,36 +106,53 @@ def start_new_game():
     # Get the number of road closures based on difficulty (default to 1 if not set)
     num_closures = st.session_state.get('num_road_closures', 1)
     
-    # Generate road closures based on selected difficulty
-    st.session_state.closed_roads = generate_road_closures(num_closures=num_closures)
-    
-    # Update difficulty display based on actual number of closures generated
-    update_difficulty_display(len(st.session_state.closed_roads))
+    try:
+        # Generate road closures based on selected difficulty
+        st.session_state.closed_roads = generate_road_closures(num_closures=num_closures)
+        
+        # Update difficulty display based on actual number of closures generated
+        update_difficulty_display(len(st.session_state.closed_roads))
 
-    # Display accurate difficulty message
-    if len(st.session_state.closed_roads) != num_closures:
-        actual_difficulty = st.session_state.displayed_difficulty
-        st.info(f"Note: {actual_difficulty} mode with {len(st.session_state.closed_roads)} road closure(s) was applied to ensure a playable game.")
-    else:
-        if num_closures == 1:
-            st.info(f"Easy mode: 1 road closure generated.")
-        elif num_closures == 2:
-            st.info(f"Medium mode: {len(st.session_state.closed_roads)} road closures generated.")
+        # Display accurate difficulty message
+        if len(st.session_state.closed_roads) != num_closures:
+            actual_difficulty = st.session_state.displayed_difficulty
+            st.info(f"Note: {actual_difficulty} mode with {len(st.session_state.closed_roads)} road closure(s) was applied to ensure a playable game.")
         else:
-            st.info(f"Hard mode: {len(st.session_state.closed_roads)} road closures generated.")
-    
-    # If no closures were possible, let the player know
-    if len(st.session_state.closed_roads) == 0:
-        st.warning("No road closures were possible while ensuring all packages could be delivered.")
+            if num_closures == 1:
+                st.info(f"Easy mode: 1 road closure generated.")
+            elif num_closures == 2:
+                st.info(f"Medium mode: {len(st.session_state.closed_roads)} road closures generated.")
+            else:
+                st.info(f"Hard mode: {len(st.session_state.closed_roads)} road closures generated.")
+        
+        # If no closures were possible, let the player know
+        if len(st.session_state.closed_roads) == 0:
+            st.warning("No road closures were possible while ensuring all packages could be delivered.")
+    except Exception as e:
+        # Fallback to a safe configuration if road closure generation fails
+        st.warning("Using default road closures to ensure a playable game.")
+        st.session_state.closed_roads = [("Factory", "Shop")]  # Safe default
+        update_difficulty_display(1)  # Set to Easy mode
 
-    # Try to find an optimal route with the improved algorithm
-    optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
-    
-    # Verify the optimal route is valid and all packages can be delivered
-    valid_optimal = validate_optimal_route(optimal_route, optimal_path, st.session_state.packages)
-    
-    if not valid_optimal:
-        st.warning("Optimal route calculation encountered challenges. Using best available solution.")
+    try:
+        # Try to find an optimal route with the improved algorithm
+        optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
+        
+        # Verify the optimal route is valid and all packages can be delivered
+        valid_optimal = validate_optimal_route(optimal_route, optimal_path, st.session_state.packages)
+        
+        if not valid_optimal:
+            st.warning("Optimal route calculation encountered challenges. Using best available solution.")
+            
+            # If validation fails, try the fallback route
+            from routing import fallback_route
+            optimal_route, optimal_path, optimal_distance = fallback_route(start_location, locations_to_visit, st.session_state.packages)
+    except Exception as e:
+        st.error(f"Route calculation error: {e}")
+        # Create a minimal valid route as fallback
+        optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in locations_to_visit]
+        optimal_path = locations_to_visit
+        optimal_distance = 10  # Arbitrary distance as fallback
     
     st.session_state.optimal_route = optimal_route
     st.session_state.optimal_path = optimal_path if optimal_path else ["Factory"]

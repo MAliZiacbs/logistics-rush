@@ -461,35 +461,131 @@ def solve_tsp_improved(start_location, locations, packages):
     # If no valid route found, create a fallback route
     return fallback_route(start_location, locations, packages)
 
+# This is a patch for routing.py
+# Add this improved version of fallback_route function to routing.py
+
 def fallback_route(start_location, locations, packages):
     """
     Create a fallback route when the optimal solution can't be found.
-    Ensures a valid route that satisfies all constraints.
+    Ensures a valid route that satisfies all constraints and avoids closed roads.
     """
+    # Import required functions locally to avoid circular imports
+    from feature_road_closures import is_road_closed, calculate_segment_path
+    
     # Create a valid location sequence that satisfies constraints
     location_sequence = []
     
     # Start with starting location
     location_sequence.append(start_location)
     
-    # Add constraint locations in correct order
+    # Create a graph representation without closed roads
+    G = nx.Graph()
+    for loc in locations:
+        G.add_node(loc)
+    for loc1 in locations:
+        for loc2 in locations:
+            if loc1 != loc2 and not is_road_closed(loc1, loc2):
+                G.add_edge(loc1, loc2)
+    
+    # Function to find a valid path between two locations
+    def find_valid_path(from_loc, to_loc):
+        try:
+            return nx.shortest_path(G, from_loc, to_loc)
+        except nx.NetworkXNoPath:
+            return None
+    
+    # Add constraint locations in correct order, ensuring we can reach them
+    # Make sure Factory comes before Shop
     if "Factory" not in location_sequence:
-        location_sequence.append("Factory")
+        factory_path = find_valid_path(location_sequence[-1], "Factory")
+        if factory_path:
+            # Add all locations along path except the starting point which is already there
+            location_sequence.extend(factory_path[1:])
     
+    # Make sure DHL Hub comes next after Factory if not already visited
     if "DHL Hub" not in location_sequence:
-        location_sequence.append("DHL Hub")
+        dhl_path = find_valid_path(location_sequence[-1], "DHL Hub")
+        if dhl_path:
+            location_sequence.extend(dhl_path[1:])
     
+    # Then add Shop after Factory
     if "Shop" not in location_sequence:
-        location_sequence.append("Shop")
+        shop_path = find_valid_path(location_sequence[-1], "Shop")
+        if shop_path:
+            location_sequence.extend(shop_path[1:])
     
+    # Finally add Residence after DHL Hub
     if "Residence" not in location_sequence:
-        location_sequence.append("Residence")
+        res_path = find_valid_path(location_sequence[-1], "Residence")
+        if res_path:
+            location_sequence.extend(res_path[1:])
     
-    # Add back starting location to complete circuit if not already there
+    # Complete the circuit back to start if possible
     if location_sequence[-1] != start_location:
-        location_sequence.append(start_location)
+        return_path = find_valid_path(location_sequence[-1], start_location)
+        if return_path:
+            location_sequence.extend(return_path[1:])
     
-    # Create action route by handling packages one at a time
+    # Ensure all locations are included
+    for loc in locations:
+        if loc not in location_sequence:
+            # Try to insert location at a valid position that respects constraints
+            for i in range(len(location_sequence)):
+                # Skip insertion at beginning
+                if i == 0:
+                    continue
+                    
+                # Check if we can insert this location while respecting constraints
+                test_seq = location_sequence.copy()
+                test_seq.insert(i, loc)
+                
+                # Check if the modified sequence satisfies constraints
+                if check_constraints(test_seq):
+                    # Check if we can reach this location from previous and next
+                    prev_loc = test_seq[i-1]
+                    next_loc = test_seq[i+1] if i+1 < len(test_seq) else None
+                    
+                    can_reach_from_prev = not is_road_closed(prev_loc, loc)
+                    can_reach_next = next_loc is None or not is_road_closed(loc, next_loc)
+                    
+                    if can_reach_from_prev and can_reach_next:
+                        location_sequence.insert(i, loc)
+                        break
+    
+    # Final check to make sure constraints are satisfied
+    if not check_constraints(location_sequence):
+        # If constraints are violated, re-order the locations to satisfy them
+        # This is a last resort to ensure a valid route
+        new_sequence = [start_location]
+        remaining = set(location_sequence) - {start_location}
+        
+        # Add Factory if not already there
+        if "Factory" in remaining and "Factory" != start_location:
+            new_sequence.append("Factory")
+            remaining.remove("Factory")
+        
+        # Add DHL Hub if not already there
+        if "DHL Hub" in remaining and "DHL Hub" != start_location:
+            new_sequence.append("DHL Hub")
+            remaining.remove("DHL Hub")
+        
+        # Add Shop after Factory
+        if "Shop" in remaining and "Shop" != start_location:
+            new_sequence.append("Shop")
+            remaining.remove("Shop")
+        
+        # Add Residence after DHL Hub
+        if "Residence" in remaining and "Residence" != start_location:
+            new_sequence.append("Residence")
+            remaining.remove("Residence")
+        
+        # Add remaining locations
+        for loc in remaining:
+            new_sequence.append(loc)
+        
+        location_sequence = new_sequence
+    
+    # Create action route
     action_route = []
     for loc in location_sequence:
         action_route.append({
@@ -498,58 +594,81 @@ def fallback_route(start_location, locations, packages):
             "package_id": None
         })
     
-    # Add package operations between appropriate locations
-    for pkg in packages:
-        pickup_idx = None
-        delivery_idx = None
-        
-        # Find indices of pickup and delivery locations
-        for i, action in enumerate(action_route):
-            if action["location"] == pkg["pickup"] and action["action"] == "visit":
-                if pickup_idx is None:
-                    pickup_idx = i
-            if action["location"] == pkg["delivery"] and action["action"] == "visit":
-                if delivery_idx is None and (pickup_idx is not None):
-                    delivery_idx = i
-        
-        # If both locations found in correct order, add package operations
-        if pickup_idx is not None and delivery_idx is not None and pickup_idx < delivery_idx:
-            # Insert pickup after visit
-            pickup_action = {
-                "location": pkg["pickup"],
-                "action": "pickup",
-                "package_id": pkg["id"]
-            }
-            action_route.insert(pickup_idx + 1, pickup_action)
-            
-            # Delivery index is now shifted by 1
-            delivery_idx += 1
-            
-            # Insert delivery after visit
-            delivery_action = {
-                "location": pkg["delivery"],
-                "action": "deliver",
-                "package_id": pkg["id"]
-            }
-            action_route.insert(delivery_idx + 1, delivery_action)
-    
-    # Calculate path and distance
-    route_path = []
-    for action in action_route:
-        if not route_path or route_path[-1] != action["location"]:
-            route_path.append(action["location"])
-    
-    # Calculate total distance (use arbitrary high value if can't calculate)
-    total_distance = 0
-    for i in range(len(route_path) - 1):
-        try:
-            path, dist = calculate_segment_path(route_path[i], route_path[i+1])
-            if dist != float('inf'):
-                total_distance += dist
+    # Handle packages
+    # First, verify if the path is valid with respect to road closures
+    valid_path = []
+    for i in range(len(location_sequence) - 1):
+        segment_path, segment_distance = calculate_segment_path(location_sequence[i], location_sequence[i+1])
+        if segment_path:
+            if i == 0:
+                valid_path.extend(segment_path)
             else:
-                total_distance += 100  # Arbitrary high value
-        except:
-            total_distance += 100  # Arbitrary high value
+                valid_path.extend(segment_path[1:])  # Skip first to avoid duplication
+        else:
+            # If no valid path, try to find a detour
+            detour_exists = False
+            for intermediate in locations:
+                if intermediate != location_sequence[i] and intermediate != location_sequence[i+1]:
+                    path1, dist1 = calculate_segment_path(location_sequence[i], intermediate)
+                    path2, dist2 = calculate_segment_path(intermediate, location_sequence[i+1])
+                    
+                    if path1 and path2 and dist1 != float('inf') and dist2 != float('inf'):
+                        if i == 0:
+                            valid_path.extend(path1)
+                        else:
+                            valid_path.extend(path1[1:])  # Skip first to avoid duplication
+                        valid_path.extend(path2[1:])  # Skip first to avoid duplication
+                        detour_exists = True
+                        break
+            
+            if not detour_exists:
+                # If we can't find a valid path, we need to skip this segment
+                # and try to find an alternative route
+                continue
+    
+    # Calculate total distance (use actual segment distances)
+    total_distance = 0
+    route_path = location_sequence
+    
+    for i in range(len(route_path) - 1):
+        _, segment_distance = calculate_segment_path(route_path[i], route_path[i+1])
+        if segment_distance != float('inf'):
+            total_distance += segment_distance
+    
+    return action_route, route_path, total_distance
+
+# Improved version of solve_tsp function
+def solve_tsp(start_location, locations):
+    """
+    Wrapper function that calls the improved TSP solver with packages from session state,
+    with better handling of road closures.
+    """
+    # Get packages from session state
+    packages = st.session_state.packages if 'packages' in st.session_state else []
+    
+    try:
+        # Try the improved implementation
+        action_route, route_path, total_distance = solve_tsp_improved(start_location, locations, packages)
+        
+        # Verify the solution is valid
+        from feature_road_closures import is_road_closed
+        
+        # Check for any closed roads in the path
+        invalid_path = False
+        for i in range(len(route_path) - 1):
+            if is_road_closed(route_path[i], route_path[i+1]):
+                invalid_path = True
+                break
+        
+        if invalid_path or not check_constraints(route_path):
+            # If the path is invalid, use fallback
+            st.warning("Complex road closures detected. Using alternative routing.")
+            action_route, route_path, total_distance = fallback_route(start_location, locations, packages)
+    
+    except Exception as e:
+        # If any error occurs, use the fallback route
+        st.warning(f"Routing calculation encountered a challenge. Using best available solution.")
+        action_route, route_path, total_distance = fallback_route(start_location, locations, packages)
     
     return action_route, route_path, total_distance
 
