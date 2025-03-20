@@ -19,7 +19,7 @@ def start_new_game():
     st.session_state.optimal_route = None
     st.session_state.optimal_path = None
     
-    locations_to_visit = list(LOCATIONS.keys())  # No Central Hub
+    locations_to_visit = list(LOCATIONS.keys())
     start_location = "Factory"
 
     st.session_state.constraints = {
@@ -29,6 +29,7 @@ def start_new_game():
         "Residence": "Must visit after DHL Hub"
     }
     
+    # Generate road closures first so the optimal route can account for them
     st.session_state.closed_roads = generate_road_closures(num_closures=1)
     st.session_state.packages = generate_packages(num_packages=3)
     st.session_state.total_packages = len(st.session_state.packages)
@@ -36,8 +37,24 @@ def start_new_game():
     # Try to find an optimal route with the improved algorithm
     optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
     
-    if optimal_route is None:
-        st.warning("Optimal route calculation failed. Using fallback route starting from Factory.")
+    # Verify the optimal route is valid and all packages can be delivered
+    valid_optimal = True
+    if optimal_route:
+        # Check if all packages are handled
+        handled_packages = set()
+        for action in optimal_route:
+            if action["action"] in ["pickup", "deliver"] and action["package_id"] is not None:
+                handled_packages.add(action["package_id"])
+        
+        if len(handled_packages) != len(st.session_state.packages):
+            valid_optimal = False
+            st.warning("Optimal route doesn't handle all packages. Using fallback.")
+    else:
+        valid_optimal = False
+        st.warning("Optimal route calculation failed. Using fallback route.")
+    
+    # Create a fallback route if needed
+    if not valid_optimal:
         # Create a fallback route that ensures all constraints are met and all packages can be delivered
         fallback_route = []
         
@@ -49,10 +66,8 @@ def start_new_game():
         if fallback_route[0]["location"] != start_location:
             fallback_route.insert(0, {"location": start_location, "action": "visit", "package_id": None})
         
-        fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
-        
         # Calculate path and distance for the fallback route
-        fallback_path, optimal_distance = calculate_route_distance(fallback_route)
+        fallback_path, optimal_distance = calculate_route_distance([r["location"] for r in fallback_route])
         
         if fallback_path:
             optimal_route = fallback_route
@@ -102,7 +117,7 @@ def process_location_checkin(location):
     if available_pickups and not st.session_state.current_package:
         st.info(f"📦 There are {len(available_pickups)} packages available for pickup at {location}!")
     
-    main_locations = list(LOCATIONS.keys())  # No Central Hub
+    main_locations = list(LOCATIONS.keys())
     all_locations_visited = all(loc in st.session_state.current_route for loc in main_locations)
     all_packages_delivered = len(st.session_state.delivered_packages) == st.session_state.total_packages
     
@@ -142,7 +157,7 @@ def get_game_status():
     }
 
 def end_game():
-    """End the game and calculate results"""
+    """End the game and calculate results with improved efficiency calculation"""
     if not st.session_state.game_active:
         return None
 
@@ -162,13 +177,30 @@ def end_game():
         if segment_distance != float('inf'):
             player_distance += segment_distance
 
-    efficiency = min(100, int((optimal_distance / player_distance) * 100)) if player_distance > 0 and optimal_distance > 0 else 0
+    # Compare player's route to optimal route
+    # If player's distance is better (shorter) than the "optimal", update the optimal
+    player_found_better_route = False
+    if player_distance < optimal_distance and player_distance > 0:
+        # Player found a better route than the calculated "optimal"
+        st.success("You found a more efficient route than the algorithm! 🎉")
+        
+        # Update the optimal path and distance for visualization
+        st.session_state.optimal_path = st.session_state.current_route.copy()
+        st.session_state.optimal_distance = player_distance
+        optimal_distance = player_distance
+        player_found_better_route = True
+        efficiency = 100  # Perfect efficiency
+    else:
+        # Calculate efficiency normally
+        efficiency = min(100, int((optimal_distance / player_distance) * 100)) if player_distance > 0 and optimal_distance > 0 else 0
+
     weights = SCORING_WEIGHTS["Logistics Challenge"]
     time_factor = max(0, 100 - (game_time / 3))
     constraints_followed = check_constraints(st.session_state.current_route)
     constraint_factor = 100 if constraints_followed else 0
     delivery_percent = min(100, int((len(st.session_state.delivered_packages) / max(1, st.session_state.total_packages)) * 100))
     
+    # Calculate score components with possibly improved efficiency
     score_components = {
         "efficiency": efficiency * weights["efficiency"],
         "delivery": delivery_percent * weights["delivery"],
@@ -190,10 +222,22 @@ def end_game():
     optimal_score = int(sum(optimal_score_components.values()))
     optimal_score = max(0, min(100, optimal_score))
     
-    improvement_percent = ((optimal_score - player_score) / player_score * 100) if player_score > 0 else 0
+    # If player found a better route, their score should be the new optimal
+    if player_found_better_route:
+        optimal_score = player_score
+    
+    # Calculate improvement percentage more meaningfully
+    if player_score > 0:
+        if player_found_better_route or player_score >= optimal_score:
+            improvement_percent = 0.0  # No improvement needed
+        else:
+            improvement_percent = ((optimal_score - player_score) / player_score * 100)
 
     # Ensure optimal_path is consistent between visualization and text description
-    if hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
+    if player_found_better_route:
+        # Use player's route as the optimal path
+        optimal_path = st.session_state.current_route.copy()
+    elif hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
         # Extract locations from the action route in the correct order
         optimal_path = []
         seen_locations = set()
@@ -213,9 +257,17 @@ def end_game():
         "player": st.session_state.current_route.copy(),
         "optimal": optimal_path
     }
-    
+
     # Store optimal_route for package operations in text description
-    st.session_state.completed_optimal_route = st.session_state.optimal_route if hasattr(st.session_state, 'optimal_route') else []
+    if player_found_better_route:
+        # Convert player's route to action route for package operations
+        # This is a simplified representation of the player's actual path
+        player_action_route = []
+        for i, loc in enumerate(st.session_state.current_route):
+            player_action_route.append({"location": loc, "action": "visit", "package_id": None})
+        st.session_state.completed_optimal_route = player_action_route
+    else:
+        st.session_state.completed_optimal_route = st.session_state.optimal_route if hasattr(st.session_state, 'optimal_route') else []
     
     if st.session_state.current_player:
         result_data = {
@@ -224,7 +276,8 @@ def end_game():
             "delivery": delivery_percent,
             "constraints": constraint_factor,
             "score": player_score,
-            "route": st.session_state.current_route.copy()
+            "route": st.session_state.current_route.copy(),
+            "found_better_route": player_found_better_route
         }
         save_player_data(result_data)
     
@@ -240,7 +293,8 @@ def end_game():
         "delivery_percent": delivery_percent,
         "constraints_followed": constraints_followed,
         "optimal_score": optimal_score,
-        "improvement_percent": improvement_percent
+        "improvement_percent": improvement_percent,
+        "found_better_route": player_found_better_route
     }
     st.session_state.game_results = results
     return results
@@ -250,7 +304,7 @@ def get_completion_summary():
     if not st.session_state.game_active:
         return None
         
-    main_locations = list(LOCATIONS.keys())  # No Central Hub
+    main_locations = list(LOCATIONS.keys())
     visited_locations = [loc for loc in main_locations if loc in st.session_state.current_route]
     remaining_locations = [loc for loc in main_locations if loc not in st.session_state.current_route]
     delivered_packages = len(st.session_state.delivered_packages)

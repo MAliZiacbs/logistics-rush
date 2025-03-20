@@ -1,11 +1,11 @@
 import streamlit as st
 import random
 from config import LOCATIONS
-from feature_road_closures import is_road_closed  # Added this import to fix the error
+from feature_road_closures import is_road_closed
 
 def generate_packages(num_packages=3):
     """Generate random package pickup and delivery locations that don't conflict with constraints"""
-    locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
+    locations = [loc for loc in LOCATIONS.keys()]
     packages = []
     
     # Special package that requires Factory → Shop route
@@ -78,6 +78,11 @@ def pickup_package_by_id(package_id):
     if not current_location:
         return False
         
+    # If already carrying a package, cannot pick up another
+    if st.session_state.current_package:
+        st.warning("You are already carrying a package. Deliver it first before picking up another.")
+        return False
+        
     # Find the package with the given ID
     for pkg in st.session_state.packages:
         if pkg["id"] == package_id and pkg["pickup"] == current_location and pkg["status"] == "waiting":
@@ -120,7 +125,7 @@ def get_package_statistics():
     
     # Count packages by location
     stats["by_location"] = {}
-    for loc in [l for l in LOCATIONS.keys() if l != "Central Hub"]:
+    for loc in LOCATIONS.keys():
         stats["by_location"][loc] = {
             "pickups": len([p for p in st.session_state.packages if p["pickup"] == loc and p["status"] == "waiting"]),
             "deliveries": len([p for p in st.session_state.delivered_packages if p["delivery"] == loc])
@@ -185,25 +190,39 @@ def get_optimal_delivery_order():
     if not waiting_packages:
         return []
         
-    current_location = st.session_state.current_route[-1] if st.session_state.current_route else "Central Hub"
+    current_location = st.session_state.current_route[-1] if st.session_state.current_route else "Factory"
     
-    # Simple greedy algorithm: pick up closest package, deliver it, repeat
+    # Simple one-package-at-a-time greedy algorithm
     optimal_order = []
     location = current_location
     
+    # If currently carrying a package, prioritize delivering it first
+    if st.session_state.current_package:
+        delivery_loc = st.session_state.current_package["delivery"]
+        optimal_order.append({
+            "action": "delivery",
+            "package_id": st.session_state.current_package["id"],
+            "location": delivery_loc
+        })
+        location = delivery_loc
+    
+    # Now handle remaining packages one at a time
     while waiting_packages:
         # Find closest pickup
         nearest_pickup = min(waiting_packages, 
-                             key=lambda p: calculate_route_distance([location, p["pickup"]]))
+                             key=lambda p: calculate_route_distance([location, p["pickup"]])[1])
         
-        # Add to optimal order
+        # Add pickup to optimal order
         optimal_order.append({
             "action": "pickup",
             "package_id": nearest_pickup["id"],
             "location": nearest_pickup["pickup"]
         })
         
-        # Add delivery to optimal order
+        # Update location to pickup location
+        location = nearest_pickup["pickup"]
+        
+        # Add delivery immediately after pickup
         optimal_order.append({
             "action": "delivery",
             "package_id": nearest_pickup["id"],
@@ -262,7 +281,7 @@ def get_package_hints():
         # Check if there's a road closure blocking direct delivery
         current_loc = st.session_state.current_route[-1] if st.session_state.current_route else None
         if current_loc and is_road_closed(current_loc, pkg['delivery']):
-            hints.append(f"The direct route to {pkg['delivery']} is closed. Try going through Central Hub.")
+            hints.append(f"The direct route to {pkg['delivery']} is closed. Find a detour.")
     else:
         # Suggest picking up specific packages based on location
         current_loc = st.session_state.current_route[-1] if st.session_state.current_route else None
@@ -291,8 +310,12 @@ def get_package_hints():
     if len(st.session_state.delivered_packages) == 0 and len(st.session_state.packages) > 0:
         hints.append("Focus on delivering the Factory→Shop and DHL Hub→Residence packages first to satisfy constraints.")
     
-    # Optimize route
-    if len(st.session_state.packages) - len(st.session_state.delivered_packages) > 1:
-        hints.append("Try to plan a route that lets you pick up and deliver multiple packages efficiently.")
+    # Remind about one-package-at-a-time rule
+    hints.append("Remember: You can only carry one package at a time. Deliver current package before picking up another.")
+    
+    # Road closure advice
+    if st.session_state.closed_roads:
+        closed_road = st.session_state.closed_roads[0]
+        hints.append(f"Plan your route carefully to avoid the closed road between {closed_road[0]} and {closed_road[1]}.")
     
     return hints
