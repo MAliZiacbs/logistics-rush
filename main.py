@@ -10,7 +10,8 @@ import json
 # Import our modules
 from config import LOCATIONS, GAME_MODES, STYLES, check_constraints
 from game_engine import start_new_game, process_location_checkin, get_game_status
-from visualization import visualize_map, render_action_controls, render_game_info, render_game_results
+from visualization import visualize_map 
+from visualization_renders import render_action_controls, render_game_info, render_game_results
 from data_management import save_player_data, export_player_data, reset_leaderboard, reset_all_data
 
 # Page configuration

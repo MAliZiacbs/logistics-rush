@@ -8,6 +8,20 @@ from feature_road_closures import generate_road_closures, is_road_closed
 from feature_packages import generate_packages
 from data_management import save_player_data
 
+def update_difficulty_display(num_actual_closures):
+    """Update the displayed difficulty based on the actual number of closures"""
+    if num_actual_closures >= 3:
+        st.session_state.displayed_difficulty = "Hard"
+    elif num_actual_closures >= 2:
+        st.session_state.displayed_difficulty = "Medium"
+    elif num_actual_closures >= 1:
+        st.session_state.displayed_difficulty = "Easy"
+    else:
+        st.session_state.displayed_difficulty = "No Closures"
+    
+    # This will be used for display purposes
+    st.session_state.actual_num_closures = num_actual_closures
+
 def start_new_game():
     """Start a new game with all features combined"""
     st.session_state.game_active = True
@@ -39,13 +53,20 @@ def start_new_game():
     # Generate road closures based on selected difficulty
     st.session_state.closed_roads = generate_road_closures(num_closures=num_closures)
     
-    # Display message about difficulty
-    if num_closures == 1:
-        st.info(f"Easy mode: 1 road closure generated.")
-    elif num_closures == 2:
-        st.info(f"Medium mode: {len(st.session_state.closed_roads)} road closures generated.")
+    # Update difficulty display based on actual number of closures generated
+    update_difficulty_display(len(st.session_state.closed_roads))
+
+    # Display accurate difficulty message
+    if len(st.session_state.closed_roads) != num_closures:
+        actual_difficulty = st.session_state.displayed_difficulty
+        st.info(f"Note: {actual_difficulty} mode with {len(st.session_state.closed_roads)} road closure(s) was applied to ensure a playable game.")
     else:
-        st.info(f"Hard mode: {len(st.session_state.closed_roads)} road closures generated.")
+        if num_closures == 1:
+            st.info(f"Easy mode: 1 road closure generated.")
+        elif num_closures == 2:
+            st.info(f"Medium mode: {len(st.session_state.closed_roads)} road closures generated.")
+        else:
+            st.info(f"Hard mode: {len(st.session_state.closed_roads)} road closures generated.")
     
     # If no closures were possible, let the player know
     if len(st.session_state.closed_roads) == 0:
