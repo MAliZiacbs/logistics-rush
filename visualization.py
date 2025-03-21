@@ -9,6 +9,9 @@ from feature_road_closures import is_road_closed
 from feature_packages import get_available_packages_at_location, get_package_hints
 from game_engine import process_location_checkin, pickup_package, get_game_status, get_completion_summary
 
+# This patch fixes the visualization issue where the optimal route shows paths using closed roads
+
+# Add this improved function to visualization.py
 def visualize_map(player_route=None, optimal_route=None, constraints=None, show_roads=True, route_type="both"):
     """Create a clean, professional visual map with improved route display and road closure handling."""
     fig = go.Figure()
@@ -72,7 +75,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         count = sum(1 for i in range(len(route) - 1) if tuple(sorted([route[i], route[i+1]])) == path and i < start_idx)
         # Alternate direction: up for odd counts, down for even counts
         direction = 1 if count % 2 == 0 else -1
-        return direction * (count // 2 + 1) * 20  # 20 units per repeat, alternating direction
+        return direction * (count // 2 + 1) * 20  # 20 units per offset, alternating direction
 
     # User Route: Separate lines for each traversal with numbered sequence
     line_width = 4 if not show_roads else 2
@@ -125,18 +128,68 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 opacity=0.8
             )
 
-    # Optimal Route: Fixed to draw as a sequential path
+    # Optimal Route: Fixed to draw showing proper detours around closed roads
     if (optimal_route and len(optimal_route) > 1 and (route_type == "both" or route_type == "optimal")):
-        # Draw each segment of the optimal route in sequence
+        # New: Process the optimal route to respect road closures
+        processed_optimal_route = []
         for i in range(len(optimal_route) - 1):
             loc1 = optimal_route[i]
             loc2 = optimal_route[i+1]
+            
+            # Check if this segment uses a closed road
+            is_closed = False
+            for closed_road in closed_roads:
+                if (loc1 == closed_road[0] and loc2 == closed_road[1]) or (loc1 == closed_road[1] and loc2 == closed_road[0]):
+                    is_closed = True
+                    break
+            
+            if not is_closed:
+                # Direct route is available
+                if i == 0:
+                    processed_optimal_route.append(loc1)
+                processed_optimal_route.append(loc2)
+            else:
+                # Need to find a detour
+                from routing import calculate_segment_path
+                segment_path, _ = calculate_segment_path(loc1, loc2)
+                
+                if segment_path:
+                    # Use the calculated detour path
+                    if i == 0:
+                        processed_optimal_route.extend(segment_path)
+                    else:
+                        # Skip the first location to avoid duplication
+                        processed_optimal_route.extend(segment_path[1:])
+                else:
+                    # If no path is found, just add the endpoints
+                    # This shouldn't happen with a properly validated route
+                    if i == 0:
+                        processed_optimal_route.append(loc1)
+                    processed_optimal_route.append(loc2)
+        
+        # Use the processed route for visualization
+        display_route = processed_optimal_route if processed_optimal_route else optimal_route
+        
+        # Draw each segment of the optimal route in sequence
+        for i in range(len(display_route) - 1):
+            loc1 = display_route[i]
+            loc2 = display_route[i+1]
             x0, y0 = LOCATIONS[loc1]["position"]
             x1, y1 = LOCATIONS[loc2]["position"]
             
             # Apply consistent offset for optimal route
             y0_offset = y0 - 8
             y1_offset = y1 - 8
+            
+            # Skip drawing this segment if it uses a closed road
+            should_draw = True
+            for closed_road in closed_roads:
+                if (loc1 == closed_road[0] and loc2 == closed_road[1]) or (loc1 == closed_road[1] and loc2 == closed_road[0]):
+                    should_draw = False
+                    break
+            
+            if not should_draw:
+                continue
             
             # Add sequential line segment
             fig.add_trace(go.Scatter(

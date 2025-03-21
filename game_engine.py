@@ -78,6 +78,9 @@ def validate_optimal_route(route, path, packages):
 # This is a patch for game_engine.py
 # Update the start_new_game function to better handle road closures
 
+# This is a patch for game_engine.py
+# Update the start_new_game function to better handle road closures
+
 def start_new_game():
     """Start a new game with all features combined - with improved error handling"""
     st.session_state.game_active = True
@@ -231,8 +234,9 @@ def get_game_status():
         "progress_text": f"Overall Progress: {combined_progress}%"
     }
 
+# Add these improved functions to game_engine.py
 def end_game():
-    """End the game and calculate results with improved efficiency calculation"""
+    """End the game and calculate results with improved efficiency calculation and route validation"""
     if not st.session_state.game_active:
         return None
 
@@ -326,6 +330,35 @@ def end_game():
     else:
         # Fallback if optimal_route is not available
         optimal_path = st.session_state.optimal_path if hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path else []
+    
+    # NEW: Validate that the optimal path doesn't use closed roads
+    if hasattr(st.session_state, 'closed_roads') and st.session_state.closed_roads:
+        from feature_road_closures import is_road_closed
+        from routing import calculate_segment_path
+        
+        # Process the optimal route to ensure it respects road closures
+        valid_optimal_path = []
+        for i in range(len(optimal_path)):
+            if i == 0:
+                valid_optimal_path.append(optimal_path[i])
+                continue
+                
+            prev_loc = optimal_path[i-1]
+            curr_loc = optimal_path[i]
+            
+            # Check if this segment uses a closed road
+            if is_road_closed(prev_loc, curr_loc):
+                # Find a detour
+                segment_path, _ = calculate_segment_path(prev_loc, curr_loc)
+                if segment_path and len(segment_path) > 2:
+                    # Add intermediate locations in the detour
+                    for loc in segment_path[1:-1]:
+                        valid_optimal_path.append(loc)
+            
+            valid_optimal_path.append(curr_loc)
+        
+        # Use the validated path
+        optimal_path = valid_optimal_path
     
     # Store the consistent path for both visualization and text description
     st.session_state.completed_routes = {

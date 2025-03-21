@@ -43,7 +43,10 @@ def calculate_segment_path(from_loc, to_loc):
     return None, float('inf')
 
 def calculate_route_distance(route):
-    """Calculate the total distance of a route with detours, returning two values"""
+    """
+    Calculate the total distance of a route with detours, returning two values.
+    Now includes explicit checking for closed roads.
+    """
     if len(route) <= 1:
         return None, 0  # Return full_path, distance
     total_distance = 0
@@ -56,7 +59,14 @@ def calculate_route_distance(route):
         loc_route = route
         
     for i in range(len(loc_route) - 1):
-        segment_path, segment_distance = calculate_segment_path(loc_route[i], loc_route[i+1])
+        # Check for closed roads
+        if is_road_closed(loc_route[i], loc_route[i+1]):
+            # Try to find a detour
+            segment_path, segment_distance = find_detour(loc_route[i], loc_route[i+1])
+        else:
+            # Direct route is available
+            segment_path, segment_distance = calculate_segment_path(loc_route[i], loc_route[i+1])
+            
         if segment_distance == float('inf'):
             return None, float('inf')
         total_distance += segment_distance
@@ -461,17 +471,11 @@ def solve_tsp_improved(start_location, locations, packages):
     # If no valid route found, create a fallback route
     return fallback_route(start_location, locations, packages)
 
-# This is a patch for routing.py
-# Add this improved version of fallback_route function to routing.py
-
 def fallback_route(start_location, locations, packages):
     """
     Create a fallback route when the optimal solution can't be found.
     Ensures a valid route that satisfies all constraints and avoids closed roads.
     """
-    # Import required functions locally to avoid circular imports
-    from feature_road_closures import is_road_closed, calculate_segment_path
-    
     # Create a valid location sequence that satisfies constraints
     location_sequence = []
     
@@ -637,7 +641,6 @@ def fallback_route(start_location, locations, packages):
     
     return action_route, route_path, total_distance
 
-# Improved version of solve_tsp function
 def solve_tsp(start_location, locations):
     """
     Wrapper function that calls the improved TSP solver with packages from session state,
@@ -651,7 +654,6 @@ def solve_tsp(start_location, locations):
         action_route, route_path, total_distance = solve_tsp_improved(start_location, locations, packages)
         
         # Verify the solution is valid
-        from feature_road_closures import is_road_closed
         
         # Check for any closed roads in the path
         invalid_path = False
@@ -669,18 +671,6 @@ def solve_tsp(start_location, locations):
         # If any error occurs, use the fallback route
         st.warning(f"Routing calculation encountered a challenge. Using best available solution.")
         action_route, route_path, total_distance = fallback_route(start_location, locations, packages)
-    
-    return action_route, route_path, total_distance
-
-def solve_tsp(start_location, locations):
-    """
-    Wrapper function that calls the improved TSP solver with packages from session state
-    """
-    # Get packages from session state
-    packages = st.session_state.packages if 'packages' in st.session_state else []
-    
-    # Call the improved implementation
-    action_route, route_path, total_distance = solve_tsp_improved(start_location, locations, packages)
     
     return action_route, route_path, total_distance
 
@@ -725,3 +715,77 @@ def suggest_next_location(current_location, visited_locations, packages):
     # Default to nearest accessible location if no specific action
     nearest = get_nearest_accessible_location(current_location)
     return nearest if nearest else current_location, "default"
+
+def validate_optimal_route(route, path, packages):
+    """
+    Validates that the optimal route satisfies all requirements:
+    - Handles all packages
+    - Satisfies all constraints
+    - Forms a valid path with no impossible segments
+    - Properly respects road closures
+    
+    Returns True if valid, False otherwise
+    """
+    if not route or not path:
+        return False
+    
+    # Collect all package IDs that are handled in the route
+    handled_packages = set()
+    carrying = None
+    
+    for action in route:
+        if action["action"] == "pickup":
+            if carrying is not None:
+                return False  # Can't carry more than one package
+            carrying = action["package_id"]
+            handled_packages.add(action["package_id"])
+        elif action["action"] == "deliver":
+            if carrying != action["package_id"]:
+                return False  # Can't deliver what we're not carrying
+            carrying = None
+    
+    # All packages should be handled
+    if len(handled_packages) != len(packages):
+        return False
+    
+    # Check if path satisfies sequence constraints
+    if "Factory" in path and "Shop" in path:
+        f_idx = path.index("Factory")
+        s_idx = path.index("Shop")
+        if f_idx > s_idx:
+            return False  # Factory must come before Shop
+    
+    if "DHL Hub" in path and "Residence" in path:
+        d_idx = path.index("DHL Hub")
+        r_idx = path.index("Residence")
+        if d_idx > r_idx:
+            return False  # DHL Hub must come before Residence
+    
+    # Check if path respects road closures
+    for i in range(len(path) - 1):
+        if is_road_closed(path[i], path[i+1]):
+            # This segment uses a closed road!
+            return False
+    
+    # Check if all path segments are valid (no infinite distances)
+    for i in range(len(path) - 1):
+        _, distance = calculate_segment_path(path[i], path[i+1])
+        if distance == float('inf'):
+            return False
+    
+    # If we passed all checks, the route is valid
+    return True
+
+# Add a helper function to explicitly check for and report closed roads in a path
+def check_closed_roads_in_path(path):
+    """
+    Check if a path contains segments that use closed roads.
+    Returns a list of problematic segments.
+    """
+    closed_road_segments = []
+    
+    for i in range(len(path) - 1):
+        if is_road_closed(path[i], path[i+1]):
+            closed_road_segments.append((path[i], path[i+1]))
+    
+    return closed_road_segments

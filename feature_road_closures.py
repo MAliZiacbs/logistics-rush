@@ -116,6 +116,9 @@ def validate_package_delivery(G, packages):
 # This is a patch for feature_road_closures.py
 # Add this improved function to handle road closures better
 
+# This is a patch for feature_road_closures.py
+# Add this improved function to handle road closures better
+
 def generate_road_closures(num_closures=1, max_attempts=100):
     """
     Generate random road closures while ensuring:
@@ -272,7 +275,6 @@ def generate_road_closures(num_closures=1, max_attempts=100):
         safe_closure = [("Factory", "Shop")]
         st.session_state.closed_roads = safe_closure
         return safe_closure
-
 def get_road_closure_impact():
     """Calculate the impact of road closures on routing options"""
     if not st.session_state.closed_roads:
