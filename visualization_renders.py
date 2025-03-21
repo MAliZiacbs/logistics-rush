@@ -1,7 +1,7 @@
 import streamlit as st
 
 from config import LOCATIONS
-from routing import suggest_next_location
+from routing import suggest_next_location, get_distance
 from feature_packages import get_available_packages_at_location, get_package_hints
 from game_engine import process_location_checkin, pickup_package, get_game_status
 import route_analysis
