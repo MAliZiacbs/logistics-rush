@@ -166,7 +166,7 @@ def render_game_results():
         for road in st.session_state.closed_roads:
             st.markdown(f"⛔️ {road[0]} ↔️ {road[1]}")
 
-    # Display distance table with real measurements
+    # Display distance table with real measurements, handling infinity values
     st.markdown("### Distance Table (cm)")
     
     distance_data = []
@@ -175,7 +175,10 @@ def render_game_results():
         for loc2 in LOCATIONS:
             if loc1 != loc2:
                 distance = get_distance(loc1, loc2)
-                row[loc2] = f"{int(distance)} cm"
+                if distance == float('inf'):
+                    row[loc2] = "∞"  # Use infinity symbol for closed routes
+                else:
+                    row[loc2] = f"{int(distance)} cm"
         distance_data.append(row)
     
     # Convert to DataFrame and display
