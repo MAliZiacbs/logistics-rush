@@ -233,30 +233,66 @@ def create_action_route(route):
         action_route.append({"location": route[0], "action": "visit", "package_id": None})
         visited.add(route[0])
     
-    # Process the route - ONE PACKAGE AT A TIME
-    for i, loc in enumerate(route):
-        if loc not in visited and i > 0:  # Skip first location as we already added it
-            action_route.append({"location": loc, "action": "visit", "package_id": None})
-            visited.add(loc)
+    # Process the route - ONE PACKAGE AT A TIME while handling detours
+    current_loc = route[0]
+    for i in range(1, len(route)):
+        next_loc = route[i]
+        
+        # Check if we need to use a detour
+        from feature_road_closures import is_road_closed
+        if is_road_closed(current_loc, next_loc):
+            # Find the detour path
+            segment_path, _ = calculate_segment_path(current_loc, next_loc)
+            if segment_path and len(segment_path) > 2:  # If we have intermediate locations
+                # Add each location in the detour
+                for detour_loc in segment_path[1:-1]:  # Skip first and last (current and next)
+                    if detour_loc not in visited:
+                        action_route.append({"location": detour_loc, "action": "visit", "package_id": None})
+                        visited.add(detour_loc)
+                    
+                    # Check for deliveries at detour locations
+                    if carrying_package is not None:
+                        pkg = packages_to_handle[carrying_package]
+                        if pkg["delivery"] == detour_loc:
+                            action_route.append({"location": detour_loc, "action": "deliver", "package_id": carrying_package})
+                            pkg["status"] = "delivered"
+                            carrying_package = None
+                    
+                    # Check for pickups at detour locations if not carrying
+                    if carrying_package is None:
+                        pickups_at_location = [pkg_id for pkg_id, pkg in packages_to_handle.items() 
+                                              if pkg["pickup"] == detour_loc and pkg["status"] == "waiting"]
+                        if pickups_at_location:
+                            pkg_id = pickups_at_location[0]
+                            action_route.append({"location": detour_loc, "action": "pickup", "package_id": pkg_id})
+                            packages_to_handle[pkg_id]["status"] = "picked_up"
+                            carrying_package = pkg_id
+        
+        # Add the next location
+        if next_loc not in visited:
+            action_route.append({"location": next_loc, "action": "visit", "package_id": None})
+            visited.add(next_loc)
         
         # Always deliver before pickup if possible
         if carrying_package is not None:
             pkg = packages_to_handle[carrying_package]
-            if pkg["delivery"] == loc:
-                action_route.append({"location": loc, "action": "deliver", "package_id": carrying_package})
+            if pkg["delivery"] == next_loc:
+                action_route.append({"location": next_loc, "action": "deliver", "package_id": carrying_package})
                 pkg["status"] = "delivered"
                 carrying_package = None
         
         # Only then check for pickups - just ONE at a time
         if carrying_package is None:  # Only pick up if not carrying anything
             pickups_at_location = [pkg_id for pkg_id, pkg in packages_to_handle.items() 
-                                  if pkg["pickup"] == loc and pkg["status"] == "waiting"]
+                                  if pkg["pickup"] == next_loc and pkg["status"] == "waiting"]
             
             if pickups_at_location:
                 pkg_id = pickups_at_location[0]  # Just the first available package
-                action_route.append({"location": loc, "action": "pickup", "package_id": pkg_id})
+                action_route.append({"location": next_loc, "action": "pickup", "package_id": pkg_id})
                 packages_to_handle[pkg_id]["status"] = "picked_up"
                 carrying_package = pkg_id
+        
+        current_loc = next_loc
     
     # Check if we need to add more steps to handle all packages
     unhandled_packages = [pkg_id for pkg_id, pkg in packages_to_handle.items() 
@@ -271,7 +307,7 @@ def create_action_route(route):
             # Go to pickup if needed
             if pkg["status"] == "waiting":
                 if current_loc != pkg["pickup"]:
-                    # Generate path to pickup location
+                    # Generate path to pickup location with detours
                     path, _ = calculate_segment_path(current_loc, pkg["pickup"])
                     if path:
                         # Add intermediate locations if needed (for detours)
@@ -279,14 +315,14 @@ def create_action_route(route):
                             action_route.append({"location": intermediate_loc, "action": "visit", "package_id": None})
                         
                         action_route.append({"location": pkg["pickup"], "action": "visit", "package_id": None})
-                    
+                
                 action_route.append({"location": pkg["pickup"], "action": "pickup", "package_id": pkg_id})
                 pkg["status"] = "picked_up"
                 current_loc = pkg["pickup"]
                 
                 # Always deliver immediately after pickup before processing next package
                 if current_loc != pkg["delivery"]:
-                    # Generate path to delivery location
+                    # Generate path to delivery location with detours
                     path, _ = calculate_segment_path(current_loc, pkg["delivery"])
                     if path:
                         # Add intermediate locations if needed (for detours)
@@ -319,10 +355,10 @@ def solve_tsp_improved(start_location, locations, packages):
     
     # Identify critical constraint locations
     constraint_locations = {
-        "Factory": {"before": ["Shop"]},
-        "DHL Hub": {"before": ["Residence"]},
-        "Shop": {"after": ["Factory"]},
-        "Residence": {"after": ["DHL Hub"]}
+        "Warehouse": {"before": ["Shop"]},
+        "Distribution Center": {"before": ["Home"]},
+        "Shop": {"after": ["Warehouse"]},
+        "Home": {"after": ["Distribution Center"]}
     }
     
     # Try multiple route generation strategies
@@ -353,25 +389,25 @@ def solve_tsp_improved(start_location, locations, packages):
     if start_location in remaining:
         remaining.remove(start_location)
     
-    # First add Factory (if not start)
-    if "Factory" in remaining:
-        constraint_route.append("Factory")
-        remaining.remove("Factory")
+    # First add Warehouse (if not start)
+    if "Warehouse" in remaining:
+        constraint_route.append("Warehouse")
+        remaining.remove("Warehouse")
     
-    # Then add DHL Hub (if not start)
-    if "DHL Hub" in remaining:
-        constraint_route.append("DHL Hub")
-        remaining.remove("DHL Hub")
+    # Then add Distribution Center (if not start)
+    if "Distribution Center" in remaining:
+        constraint_route.append("Distribution Center")
+        remaining.remove("Distribution Center")
     
-    # Then add Shop (which must be after Factory)
+    # Then add Shop (which must be after Warehouse)
     if "Shop" in remaining:
         constraint_route.append("Shop")
         remaining.remove("Shop")
     
-    # Then add Residence (which must be after DHL Hub)
-    if "Residence" in remaining:
-        constraint_route.append("Residence")
-        remaining.remove("Residence")
+    # Then add Home (which must be after Distribution Center)
+    if "Home" in remaining:
+        constraint_route.append("Home")
+        remaining.remove("Home")
     
     # Add any other remaining locations
     for loc in list(remaining):
@@ -455,18 +491,35 @@ def solve_tsp_improved(start_location, locations, packages):
         # Create action route with package handling
         action_route = create_action_route(best_route)
         
-        # Extract the full path from the action route
+        # Extract the full path from the action route, ensuring detours are included
         loc_route = []
         for action in action_route:
             loc = action["location"]
             if not loc_route or loc_route[-1] != loc:
                 loc_route.append(loc)
         
-        # Check if route accounts for road closures
-        full_path, total_distance = calculate_route_distance(loc_route)
+        # Create a comprehensive path that includes all detours
+        full_path = []
+        total_distance = 0
+        
+        for i in range(len(loc_route) - 1):
+            segment_path, segment_distance = calculate_segment_path(loc_route[i], loc_route[i+1])
+            
+            if segment_path:
+                if i == 0:
+                    full_path.extend(segment_path)
+                else:
+                    full_path.extend(segment_path[1:])  # Skip first to avoid duplication
+                
+                total_distance += segment_distance
+            else:
+                # If no path is found, this shouldn't happen after validation
+                return fallback_route(start_location, locations, packages)
         
         if full_path:
-            return action_route, full_path, total_distance
+            # Final check to ensure the path is valid
+            if validate_optimal_route(action_route, full_path, packages):
+                return action_route, full_path, total_distance
     
     # If no valid route found, create a fallback route
     return fallback_route(start_location, locations, packages)
@@ -925,7 +978,7 @@ def validate_optimal_route(route, path, packages):
     - Handles all packages
     - Satisfies all constraints
     - Forms a valid path with no impossible segments
-    - Properly respects road closures
+    - Correctly handles detours
     
     Returns True if valid, False otherwise
     """
@@ -952,28 +1005,24 @@ def validate_optimal_route(route, path, packages):
         return False
     
     # Check if path satisfies sequence constraints
-    if "Factory" in path and "Shop" in path:
-        f_idx = path.index("Factory")
+    if "Warehouse" in path and "Shop" in path:
+        f_idx = path.index("Warehouse")
         s_idx = path.index("Shop")
         if f_idx > s_idx:
-            return False  # Factory must come before Shop
+            return False  # Warehouse must come before Shop
     
-    if "DHL Hub" in path and "Residence" in path:
-        d_idx = path.index("DHL Hub")
-        r_idx = path.index("Residence")
+    if "Distribution Center" in path and "Home" in path:
+        d_idx = path.index("Distribution Center")
+        r_idx = path.index("Home")
         if d_idx > r_idx:
-            return False  # DHL Hub must come before Residence
+            return False  # Distribution Center must come before Home
     
-    # Check if path respects road closures
+    # Check if all consecutive locations in the path are valid (considering detours)
     for i in range(len(path) - 1):
-        if is_road_closed(path[i], path[i+1]):
-            # This segment uses a closed road!
-            return False
-    
-    # Check if all path segments are valid (no infinite distances)
-    for i in range(len(path) - 1):
-        _, distance = calculate_segment_path(path[i], path[i+1])
-        if distance == float('inf'):
+        # Rather than directly checking is_road_closed, use calculate_segment_path
+        # which accounts for detours
+        segment_path, segment_distance = calculate_segment_path(path[i], path[i+1])
+        if segment_path is None or segment_distance == float('inf'):
             return False
     
     # If we passed all checks, the route is valid

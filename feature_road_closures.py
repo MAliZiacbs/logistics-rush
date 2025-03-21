@@ -18,19 +18,27 @@ def validate_package_delivery(G, packages):
     Validate if all packages can be delivered with the given graph
     Returns True if all packages can be delivered, False otherwise
     """
+    # Handle circular imports
+    from routing import calculate_segment_path
+    
     # Check if all pickup and delivery locations are connected
     for pkg in packages:
         pickup = pkg["pickup"]
         delivery = pkg["delivery"]
         
-        if not nx.has_path(G, pickup, delivery):
+        segment_path, segment_distance = calculate_segment_path(pickup, delivery)
+        if segment_path is None or segment_distance == float('inf'):
             return False
     
     # Check if constraints can still be satisfied
-    if not nx.has_path(G, "Warehouse", "Shop") or not nx.has_path(G, "Distribution Center", "Home"):
+    warehouse_to_shop_path, warehouse_to_shop_dist = calculate_segment_path("Warehouse", "Shop")
+    dc_to_home_path, dc_to_home_dist = calculate_segment_path("Distribution Center", "Home")
+    
+    if (warehouse_to_shop_path is None or warehouse_to_shop_dist == float('inf') or 
+        dc_to_home_path is None or dc_to_home_dist == float('inf')):
         return False
     
-    # Check key route segments to ensure playability
+    # Check key route segments to ensure playability - using actual paths not just connectivity
     critical_paths = [
         ["Warehouse", "Shop"],
         ["Distribution Center", "Home"],
@@ -39,7 +47,8 @@ def validate_package_delivery(G, packages):
     ]
     
     for path in critical_paths:
-        if not nx.has_path(G, path[0], path[1]):
+        segment_path, segment_distance = calculate_segment_path(path[0], path[1])
+        if segment_path is None or segment_distance == float('inf'):
             return False
     
     return True
@@ -66,8 +75,8 @@ def generate_road_closures(num_closures=1, max_attempts=100):
         ],
         3: [  # Hard mode - carefully tested combinations
             [("Shop", "Home"), ("Warehouse", "Home"), ("Distribution Center", "Shop")],
-            [("Warehouse", "Shop"), ("Distribution Center", "Shop"), ("Warehouse", "Distribution Center")],
-            [("Warehouse", "Home"), ("Shop", "Home"), ("Warehouse", "Shop")]
+            [("Warehouse", "Home"), ("Shop", "Home"), ("Warehouse", "Shop")],
+            [("Warehouse", "Shop"), ("Shop", "Home"), ("Distribution Center", "Home")]
         ]
     }
     
@@ -99,10 +108,11 @@ def generate_road_closures(num_closures=1, max_attempts=100):
                 return chosen_closures
     
     # If predefined closures don't work or we have a different number of closures,
-    # try to find valid road closures through trial and error
+    # try to find valid road closures through trial and error while maintaining difficulty
     all_road_segments = list(ROAD_SEGMENTS)
     
-    for _ in range(max_attempts):
+    # Try multiple combinations at the requested difficulty level
+    for attempt in range(max_attempts):
         random.shuffle(all_road_segments)
         candidate_closures = all_road_segments[:num_closures]
         
@@ -118,9 +128,9 @@ def generate_road_closures(num_closures=1, max_attempts=100):
             return candidate_closures
     
     # If we couldn't find a valid setup with the requested number of closures,
-    # try with fewer closures
+    # try with fewer closures but alert the user
     for reduced_closures in range(num_closures-1, 0, -1):
-        for _ in range(max_attempts):
+        for attempt in range(max_attempts):
             random.shuffle(all_road_segments)
             candidate_closures = all_road_segments[:reduced_closures]
             
@@ -133,11 +143,14 @@ def generate_road_closures(num_closures=1, max_attempts=100):
             # Check if the graph is still connected and all packages can be delivered
             if nx.is_connected(test_G) and validate_package_delivery(test_G, packages):
                 st.session_state.closed_roads = candidate_closures
+                # Notify that difficulty was reduced
+                st.warning(f"Difficulty reduced to {reduced_closures} road closure(s) to ensure a playable game.")
                 return candidate_closures
     
     # Fall back to a single safe closure if everything else fails
     fallback_closures = [("Warehouse", "Shop")]
     st.session_state.closed_roads = fallback_closures
+    st.warning("Difficulty reduced to Easy (1 road closure) to ensure a playable game.")
     return fallback_closures
 
 def add_random_closure():
