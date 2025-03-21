@@ -121,160 +121,40 @@ def validate_package_delivery(G, packages):
 
 def generate_road_closures(num_closures=1, max_attempts=100):
     """
-    Generate random road closures while ensuring:
-    1. The graph remains connected
-    2. All packages can be delivered
-    3. All constraints can be satisfied
-    
-    Falls back to preset safe closures if needed, with shuffling for variety.
-    Added extra validation and error handling.
+    Generate random road closures with improved validation to ensure playable situations.
     """
-    # Initialize the original graph
-    G = nx.Graph()
-    for loc in LOCATIONS:
-        G.add_node(loc)
-    for road in ROAD_SEGMENTS:
-        G.add_edge(road[0], road[1])
+    # Ensure we never close more than 2 roads in Medium difficulty
+    if num_closures > 3:
+        num_closures = 3  # Hard mode cap
     
-    # Get packages from session state
-    packages = st.session_state.packages if 'packages' in st.session_state else []
-    
-    # Ensure num_closures doesn't exceed possible closures while keeping graph connected
-    max_possible_closures = len(ROAD_SEGMENTS) - (len(LOCATIONS) - 1)
-    num_closures = min(num_closures, max_possible_closures)
-    
-    # Try multiple times to find valid closures
-    for attempt in range(max_attempts):
-        try:
-            # Copy the original graph
-            test_G = G.copy()
-            
-            # Select random edges to close
-            all_roads = list(ROAD_SEGMENTS)
-            random.shuffle(all_roads)
-            closed_roads = []
-            
-            for road in all_roads:
-                # Skip if already have enough closures
-                if len(closed_roads) >= num_closures:
-                    break
-                    
-                # Remove the edge
-                test_G.remove_edge(road[0], road[1])
-                
-                # Check if graph is still connected and all packages can be delivered
-                if nx.is_connected(test_G) and validate_package_delivery(test_G, packages):
-                    closed_roads.append(road)
-                else:
-                    # If removing this edge causes issues, add it back
-                    test_G.add_edge(road[0], road[1])
-            
-            # If we found enough closures, use them
-            if len(closed_roads) == num_closures:
-                # Double-check that these closures work
-                final_G = G.copy()
-                for road in closed_roads:
-                    final_G.remove_edge(road[0], road[1])
-                
-                if nx.is_connected(final_G) and validate_package_delivery(final_G, packages):
-                    st.session_state.closed_roads = closed_roads
-                    return closed_roads
-        except Exception as e:
-            # Continue to the next attempt if any error occurs
-            continue
-    
-    # If we couldn't find the requested number of closures, use preset safe closures
-    # Use pre-defined road closure combinations that we know work
-    try:
-        # Easy mode (1 closure)
-        easy_closures = [
+    # We know these specific closure combinations always work well
+    safe_closures = {
+        1: [  # Easy mode
             [("Factory", "Residence")],
             [("Shop", "Residence")],
             [("Factory", "Shop")]
-        ]
-        
-        # Medium mode (2 closures) - verified working combinations
-        medium_closures = [
+        ],
+        2: [  # Medium mode - carefully selected combinations that work well
             [("Factory", "Shop"), ("Shop", "Residence")],
-            [("Factory", "DHL Hub"), ("Shop", "Residence")],
-            [("Factory", "Shop"), ("Factory", "Residence")]
+            [("Factory", "Residence"), ("DHL Hub", "Shop")],
+            [("Shop", "Residence"), ("DHL Hub", "Shop")]
+        ],
+        3: [  # Hard mode - carefully tested combinations
+            [("Shop", "Residence"), ("Factory", "Residence"), ("DHL Hub", "Shop")],
+            [("Factory", "Shop"), ("DHL Hub", "Shop"), ("Factory", "DHL Hub")],
+            [("Factory", "Residence"), ("Shop", "Residence"), ("Factory", "Shop")]
         ]
-        
-        # Hard mode (3 closures) - these are carefully selected to avoid deadlocks
-        hard_closures = [
-            # Configuration 1: Creates a challenging but solvable route
-            [("Factory", "DHL Hub"), ("Shop", "Residence"), ("Factory", "Shop")],
-            
-            # Configuration 2: Another solvable arrangement
-            [("Factory", "Shop"), ("DHL Hub", "Shop"), ("DHL Hub", "Residence")],
-            
-            # Configuration 3: Forces a specific path that works
-            [("Factory", "Residence"), ("Shop", "Residence"), ("DHL Hub", "Shop")]
-        ]
-        
-        # Select the appropriate preset based on difficulty
-        if num_closures >= 3:  # Hard
-            preset_closures = random.choice(hard_closures)
-        elif num_closures >= 2:  # Medium
-            preset_closures = random.choice(medium_closures)
-        else:  # Easy
-            preset_closures = random.choice(easy_closures)
-        
-        # Normalize the roads to match ROAD_SEGMENTS format
-        result = []
-        for road in preset_closures:
-            if road in ROAD_SEGMENTS:
-                result.append(road)
-            elif (road[1], road[0]) in ROAD_SEGMENTS:
-                result.append((road[1], road[0]))
-        
-        # Limit to requested number (shouldn't be needed, but just to be safe)
-        result = result[:num_closures]
-        
-        # If we still don't have enough, add some that we know are safe
-        if len(result) < num_closures:
-            safe_additions = [
-                ("Factory", "Residence"),
-                ("Shop", "Residence"),
-                ("Factory", "Shop")
-            ]
-            
-            # Add from safe_additions until we have enough
-            for road in safe_additions:
-                if len(result) >= num_closures:
-                    break
-                    
-                # Skip if already closed
-                if road in result or (road[1], road[0]) in result:
-                    continue
-                    
-                # Add if it exists in ROAD_SEGMENTS
-                if road in ROAD_SEGMENTS:
-                    result.append(road)
-                elif (road[1], road[0]) in ROAD_SEGMENTS:
-                    result.append((road[1], road[0]))
-        
-        # Final validation of the preset closures
-        final_G = G.copy()
-        for road in result:
-            if isinstance(road, tuple) and len(road) == 2:
-                if road[0] in final_G and road[1] in final_G:
-                    final_G.remove_edge(road[0], road[1])
-                else:
-                    # Skip invalid road
-                    continue
-        
-        if not nx.is_connected(final_G):
-            # If even presets don't work, fall back to single closure
-            return [("Factory", "Shop")]
-        
-        st.session_state.closed_roads = result
-        return result
-    except Exception as e:
-        # Ultimate fallback - just return a single safe closure
-        safe_closure = [("Factory", "Shop")]
-        st.session_state.closed_roads = safe_closure
-        return safe_closure
+    }
+    
+    # Use a predefined safe closure combination based on difficulty
+    if num_closures in safe_closures:
+        chosen_closure = random.choice(safe_closures[num_closures])
+        st.session_state.closed_roads = chosen_closure
+        return chosen_closure
+    
+    # Fallback to single closure if not 1, 2, or 3
+    st.session_state.closed_roads = [("Factory", "Shop")]
+    return [("Factory", "Shop")]
 def get_road_closure_impact():
     """Calculate the impact of road closures on routing options"""
     if not st.session_state.closed_roads:

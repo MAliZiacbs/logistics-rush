@@ -75,7 +75,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         count = sum(1 for i in range(len(route) - 1) if tuple(sorted([route[i], route[i+1]])) == path and i < start_idx)
         # Alternate direction: up for odd counts, down for even counts
         direction = 1 if count % 2 == 0 else -1
-        return direction * (count // 2 + 1) * 20  # 20 units per offset, alternating direction
+        return direction * (count // 2 + 1) * 20  # 20 units per repeat, alternating direction
 
     # User Route: Separate lines for each traversal with numbered sequence
     line_width = 4 if not show_roads else 2
@@ -128,9 +128,9 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 opacity=0.8
             )
 
-    # Optimal Route: Fixed to draw showing proper detours around closed roads
+    # Optimal Route: Fixed to draw showing proper detours around closed roads with better offsets
     if (optimal_route and len(optimal_route) > 1 and (route_type == "both" or route_type == "optimal")):
-        # New: Process the optimal route to respect road closures
+        # Process the optimal route to respect road closures
         processed_optimal_route = []
         for i in range(len(optimal_route) - 1):
             loc1 = optimal_route[i]
@@ -162,7 +162,6 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                         processed_optimal_route.extend(segment_path[1:])
                 else:
                     # If no path is found, just add the endpoints
-                    # This shouldn't happen with a properly validated route
                     if i == 0:
                         processed_optimal_route.append(loc1)
                     processed_optimal_route.append(loc2)
@@ -170,28 +169,39 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         # Use the processed route for visualization
         display_route = processed_optimal_route if processed_optimal_route else optimal_route
         
+        # Track path segments for offset calculation
+        path_counts = {}
+        
         # Draw each segment of the optimal route in sequence
         for i in range(len(display_route) - 1):
             loc1 = display_route[i]
             loc2 = display_route[i+1]
+            
+            # Skip if this segment uses a closed road
+            is_closed = False
+            for road in closed_roads:
+                if (loc1 == road[0] and loc2 == road[1]) or (loc1 == road[1] and loc2 == road[0]):
+                    is_closed = True
+                    break
+            if is_closed:
+                continue
+                
+            # Get coordinates
             x0, y0 = LOCATIONS[loc1]["position"]
             x1, y1 = LOCATIONS[loc2]["position"]
             
-            # Apply consistent offset for optimal route
-            y0_offset = y0 - 8
-            y1_offset = y1 - 8
+            # Calculate offset (similar to player route)
+            segment = tuple(sorted([loc1, loc2]))
+            if segment not in path_counts:
+                path_counts[segment] = 0
+            path_counts[segment] += 1
             
-            # Skip drawing this segment if it uses a closed road
-            should_draw = True
-            for closed_road in closed_roads:
-                if (loc1 == closed_road[0] and loc2 == closed_road[1]) or (loc1 == closed_road[1] and loc2 == closed_road[0]):
-                    should_draw = False
-                    break
+            offset = -10 * path_counts[segment]  # Negative offset to distinguish from player route
             
-            if not should_draw:
-                continue
+            y0_offset = y0 + offset
+            y1_offset = y1 + offset
             
-            # Add sequential line segment
+            # Add segment line
             fig.add_trace(go.Scatter(
                 x=[x0, x1], y=[y0_offset, y1_offset], 
                 mode='lines+markers',
