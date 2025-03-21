@@ -260,10 +260,11 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         highlight_color = details["color"]
         
         if show_roads:
+            # Change pickup location color to orange instead of green
             has_pickup = any(pkg["pickup"] == location and pkg["status"] == "waiting" for pkg in st.session_state.packages)
             has_delivery = st.session_state.current_package and st.session_state.current_package["delivery"] == location
             if has_pickup:
-                highlight_color = "#10B981"
+                highlight_color = "#f97316"  # Changed to orange
             elif has_delivery:
                 highlight_color = "#3B82F6"
         
@@ -297,7 +298,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             for i, pkg in enumerate(pending_packages[:3]):
                 fig.add_annotation(x=details["position"][0], y=details["position"][1] - 50 - (i * 20), 
                                    text=f"{pkg['icon']} #{pkg['id']}", showarrow=False, font=dict(size=16), 
-                                   bgcolor="rgba(255,255,255,0.8)", bordercolor="#10B981", borderwidth=2, borderpad=3)
+                                   bgcolor="rgba(255,255,255,0.8)", bordercolor="#f97316", borderwidth=2, borderpad=3) # Changed from #10B981 to orange
 
     # Additional annotations
     if show_roads and hasattr(st.session_state, 'closed_roads') and st.session_state.closed_roads:

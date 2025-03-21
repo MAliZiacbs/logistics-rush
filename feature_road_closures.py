@@ -29,15 +29,15 @@ def validate_package_delivery(G, packages):
             return False
     
     # Check if constraints can still be satisfied
-    if not nx.has_path(G, "Factory", "Shop") or not nx.has_path(G, "DHL Hub", "Residence"):
+    if not nx.has_path(G, "Warehouse", "Shop") or not nx.has_path(G, "Distribution Center", "Home"):
         return False
     
     # Advanced test for hard mode with multiple closures
     # Test if it's possible to do a full route that satisfies all constraints
     
     # Create a test route that would need to satisfy all constraints:
-    # Factory → DHL Hub → Shop → Residence → Factory (complete loop)
-    test_route = ["Factory", "DHL Hub", "Shop", "Residence", "Factory"]
+    # Warehouse → Distribution Center → Shop → Home → Warehouse (complete loop)
+    test_route = ["Warehouse", "Distribution Center", "Shop", "Home", "Warehouse"]
     
     # Check if each segment in this route has a path with current closures
     for i in range(len(test_route) - 1):
@@ -46,14 +46,14 @@ def validate_package_delivery(G, packages):
     
     # Also check critical routes for package delivery scenarios
     critical_paths = [
-        # Critical Factory → Shop path (direct or via DHL Hub/Residence)
-        ["Factory", "Shop"],  
-        # Critical DHL Hub → Residence path (direct or via Factory/Shop)
-        ["DHL Hub", "Residence"],
-        # Must be able to get from Factory to DHL Hub (might need to go via Shop)
-        ["Factory", "DHL Hub"],
-        # Must be able to get from Shop to Residence (might need to go via DHL Hub)
-        ["Shop", "Residence"]
+        # Critical Warehouse → Shop path (direct or via Distribution Center/Home)
+        ["Warehouse", "Shop"],  
+        # Critical Distribution Center → Home path (direct or via Warehouse/Shop)
+        ["Distribution Center", "Home"],
+        # Must be able to get from Warehouse to Distribution Center (might need to go via Shop)
+        ["Warehouse", "Distribution Center"],
+        # Must be able to get from Shop to Home (might need to go via Distribution Center)
+        ["Shop", "Home"]
     ]
     
     for path in critical_paths:
@@ -61,53 +61,53 @@ def validate_package_delivery(G, packages):
             return False
     
     # Explicitly test more package delivery scenarios
-    # Scenario 1: Deliver a package from Factory to Shop while respecting constraints
-    # We're at Factory and need to get to Shop
+    # Scenario 1: Deliver a package from Warehouse to Shop while respecting constraints
+    # We're at Warehouse and need to get to Shop
     # If direct route is closed, we need to find a valid detour
-    if not nx.has_path(G, "Factory", "Shop"):
+    if not nx.has_path(G, "Warehouse", "Shop"):
         # Try to find a valid detour that respects constraints
-        # Since Factory must come before Shop, we can only go via DHL Hub/Residence if needed
-        factory_to_shop_path = False
+        # Since Warehouse must come before Shop, we can only go via Distribution Center/Home if needed
+        warehouse_to_shop_path = False
         
-        # Check if we can go Factory → DHL Hub → Shop
-        if nx.has_path(G, "Factory", "DHL Hub") and nx.has_path(G, "DHL Hub", "Shop"):
-            factory_to_shop_path = True
+        # Check if we can go Warehouse → Distribution Center → Shop
+        if nx.has_path(G, "Warehouse", "Distribution Center") and nx.has_path(G, "Distribution Center", "Shop"):
+            warehouse_to_shop_path = True
         
-        # Or check if we can go Factory → DHL Hub → Residence → Shop
-        # This is valid because we visit DHL Hub before Residence
-        elif (nx.has_path(G, "Factory", "DHL Hub") and 
-              nx.has_path(G, "DHL Hub", "Residence") and 
-              nx.has_path(G, "Residence", "Shop")):
-            factory_to_shop_path = True
+        # Or check if we can go Warehouse → Distribution Center → Home → Shop
+        # This is valid because we visit Distribution Center before Home
+        elif (nx.has_path(G, "Warehouse", "Distribution Center") and 
+              nx.has_path(G, "Distribution Center", "Home") and 
+              nx.has_path(G, "Home", "Shop")):
+            warehouse_to_shop_path = True
         
-        if not factory_to_shop_path:
+        if not warehouse_to_shop_path:
             return False
     
-    # Scenario 2: Deliver a package from DHL Hub to Residence while respecting constraints
-    # We're at DHL Hub and need to get to Residence
+    # Scenario 2: Deliver a package from Distribution Center to Home while respecting constraints
+    # We're at Distribution Center and need to get to Home
     # If direct route is closed, we need to find a valid detour
-    if not nx.has_path(G, "DHL Hub", "Residence"):
+    if not nx.has_path(G, "Distribution Center", "Home"):
         # Try to find a valid detour that respects constraints
-        # Since DHL Hub must come before Residence, we can only go via Factory/Shop if needed
-        dhl_to_residence_path = False
+        # Since Distribution Center must come before Home, we can only go via Warehouse/Shop if needed
+        distribution_to_home_path = False
         
-        # Check if we can go DHL Hub → Factory → Residence
-        if nx.has_path(G, "DHL Hub", "Factory") and nx.has_path(G, "Factory", "Residence"):
-            dhl_to_residence_path = True
+        # Check if we can go Distribution Center → Warehouse → Home
+        if nx.has_path(G, "Distribution Center", "Warehouse") and nx.has_path(G, "Warehouse", "Home"):
+            distribution_to_home_path = True
         
-        # Or check if we can go DHL Hub → Factory → Shop → Residence
-        # This is valid because Factory must come before Shop
-        elif (nx.has_path(G, "DHL Hub", "Factory") and 
-              nx.has_path(G, "Factory", "Shop") and 
-              nx.has_path(G, "Shop", "Residence")):
-            dhl_to_residence_path = True
+        # Or check if we can go Distribution Center → Warehouse → Shop → Home
+        # This is valid because Warehouse must come before Shop
+        elif (nx.has_path(G, "Distribution Center", "Warehouse") and 
+              nx.has_path(G, "Warehouse", "Shop") and 
+              nx.has_path(G, "Shop", "Home")):
+            distribution_to_home_path = True
         
-        # Or check if we can go DHL Hub → Shop → Residence
-        # (This assumes we've already been to Factory before going to Shop)
-        elif nx.has_path(G, "DHL Hub", "Shop") and nx.has_path(G, "Shop", "Residence"):
-            dhl_to_residence_path = True
+        # Or check if we can go Distribution Center → Shop → Home
+        # (This assumes we've already been to Warehouse before going to Shop)
+        elif nx.has_path(G, "Distribution Center", "Shop") and nx.has_path(G, "Shop", "Home"):
+            distribution_to_home_path = True
         
-        if not dhl_to_residence_path:
+        if not distribution_to_home_path:
             return False
     
     # If all tests pass, the graph is valid
@@ -130,19 +130,19 @@ def generate_road_closures(num_closures=1, max_attempts=100):
     # We know these specific closure combinations always work well
     safe_closures = {
         1: [  # Easy mode
-            [("Factory", "Residence")],
-            [("Shop", "Residence")],
-            [("Factory", "Shop")]
+            [("Warehouse", "Home")],
+            [("Shop", "Home")],
+            [("Warehouse", "Shop")]
         ],
         2: [  # Medium mode - carefully selected combinations that work well
-            [("Factory", "Shop"), ("Shop", "Residence")],
-            [("Factory", "Residence"), ("DHL Hub", "Shop")],
-            [("Shop", "Residence"), ("DHL Hub", "Shop")]
+            [("Warehouse", "Shop"), ("Shop", "Home")],
+            [("Warehouse", "Home"), ("Distribution Center", "Shop")],
+            [("Shop", "Home"), ("Distribution Center", "Shop")]
         ],
         3: [  # Hard mode - carefully tested combinations
-            [("Shop", "Residence"), ("Factory", "Residence"), ("DHL Hub", "Shop")],
-            [("Factory", "Shop"), ("DHL Hub", "Shop"), ("Factory", "DHL Hub")],
-            [("Factory", "Residence"), ("Shop", "Residence"), ("Factory", "Shop")]
+            [("Shop", "Home"), ("Warehouse", "Home"), ("Distribution Center", "Shop")],
+            [("Warehouse", "Shop"), ("Distribution Center", "Shop"), ("Warehouse", "Distribution Center")],
+            [("Warehouse", "Home"), ("Shop", "Home"), ("Warehouse", "Shop")]
         ]
     }
     
@@ -153,8 +153,9 @@ def generate_road_closures(num_closures=1, max_attempts=100):
         return chosen_closure
     
     # Fallback to single closure if not 1, 2, or 3
-    st.session_state.closed_roads = [("Factory", "Shop")]
-    return [("Factory", "Shop")]
+    st.session_state.closed_roads = [("Warehouse", "Shop")]
+    return [("Warehouse", "Shop")]
+
 def get_road_closure_impact():
     """Calculate the impact of road closures on routing options"""
     if not st.session_state.closed_roads:

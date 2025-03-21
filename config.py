@@ -2,30 +2,30 @@
 
 # Locations with their visual properties (Central Hub removed)
 LOCATIONS = {
-    "Factory": {"position": (100, 100), "color": "#f87171", "emoji": "🏭"},
-    "DHL Hub": {"position": (700, 100), "color": "#fbbf24", "emoji": "🚚"},
+    "Warehouse": {"position": (100, 100), "color": "#f87171", "emoji": "🏭"},
+    "Distribution Center": {"position": (700, 100), "color": "#fbbf24", "emoji": "🚚"},
     "Shop": {"position": (700, 300), "color": "#60a5fa", "emoji": "🏪"},
-    "Residence": {"position": (100, 300), "color": "#a78bfa", "emoji": "🏠"},
+    "Home": {"position": (100, 300), "color": "#4ade80", "emoji": "🏠"},  # Changed to green
 }
 
 # Define all possible road segments (no Central Hub)
 ROAD_SEGMENTS = [
-    ("Factory", "DHL Hub"),
-    ("Factory", "Shop"),
-    ("Factory", "Residence"),
-    ("DHL Hub", "Shop"),
-    ("DHL Hub", "Residence"),
-    ("Shop", "Residence"),
+    ("Warehouse", "Distribution Center"),
+    ("Warehouse", "Shop"),
+    ("Warehouse", "Home"),
+    ("Distribution Center", "Shop"),
+    ("Distribution Center", "Home"),
+    ("Shop", "Home"),
 ]
 
 # Simplified graph of distances between locations (no Central Hub)
 DISTANCES = {
-    ("Factory", "DHL Hub"): 3.0,
-    ("Factory", "Shop"): 4.5,
-    ("Factory", "Residence"): 2.0,
-    ("DHL Hub", "Shop"): 2.0,
-    ("DHL Hub", "Residence"): 4.5,
-    ("Shop", "Residence"): 3.0,
+    ("Warehouse", "Distribution Center"): 3.0,
+    ("Warehouse", "Shop"): 4.5,
+    ("Warehouse", "Home"): 2.0,
+    ("Distribution Center", "Shop"): 2.0,
+    ("Distribution Center", "Home"): 4.5,
+    ("Shop", "Home"): 3.0,
 }
 
 # Game modes with clear descriptions - unchanged
@@ -33,10 +33,10 @@ GAME_MODES = {
     "Logistics Challenge": {
         "description": "Master all logistics challenges in one comprehensive experience",
         "instructions": """
-        1. Start at the Factory
+        1. Start at the Warehouse
         2. Navigate through the network with random road closures
         3. Pick up and deliver packages along your route
-        4. Follow sequence constraints (Factory before Shop, DHL Hub before Residence)
+        4. Follow sequence constraints (Warehouse before Shop, Distribution Center before Home)
         5. Complete your mission as efficiently as possible
         
         Your score depends on efficiency (40%), successful deliveries (30%), 
@@ -175,17 +175,17 @@ def check_constraints(route):
 
     Returns True if constraints are met, False otherwise.
     """
-    # Factory must come before Shop
-    if "Factory" in route and "Shop" in route:
-        f_idx = route.index("Factory")
+    # Warehouse must come before Shop
+    if "Warehouse" in route and "Shop" in route:
+        f_idx = route.index("Warehouse")
         s_idx = route.index("Shop")
         if f_idx > s_idx:
             return False
             
-    # DHL Hub must come before Residence
-    if "DHL Hub" in route and "Residence" in route:
-        d_idx = route.index("DHL Hub")
-        r_idx = route.index("Residence")
+    # Distribution Center must come before Home
+    if "Distribution Center" in route and "Home" in route:
+        d_idx = route.index("Distribution Center")
+        r_idx = route.index("Home")
         if d_idx > r_idx:
             return False
             

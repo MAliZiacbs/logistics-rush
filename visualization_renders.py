@@ -156,98 +156,122 @@ def render_game_results():
 
     st.markdown("### Route Analysis")
     cc1, cc2 = st.columns(2)
+    
+    # Helper function to create route with pickup/delivery annotations
+    def create_annotated_route(route, package_operations=None):
+        """
+        Create a route representation with P1, P2, P3 for pickups and D1, D2, D3 for deliveries
+        """
+        if not route:
+            return "No route available"
+            
+        # Map to track package operations at each location
+        location_ops = {}
+        
+        # Process package operations if provided
+        if package_operations:
+            for op in package_operations:
+                location = op.get("location")
+                action = op.get("action")
+                pkg_id = op.get("package_id")
+                
+                if location and action in ["pickup", "deliver"] and pkg_id:
+                    if location not in location_ops:
+                        location_ops[location] = []
+                    
+                    # Use P1, P2, etc for pickups and D1, D2, etc for deliveries
+                    prefix = "P" if action == "pickup" else "D"
+                    location_ops[location].append(f"{prefix}{pkg_id}")
+        
+        # Create the annotated route text
+        annotated_route = []
+        for loc in route:
+            if loc in location_ops and location_ops[loc]:
+                operations = ", ".join(location_ops[loc])
+                annotated_route.append(f"{loc} ({operations})")
+            else:
+                annotated_route.append(loc)
+                
+        return " → ".join(annotated_route)
+    
+    # Track package operations for the player route
+    player_package_ops = []
+    carrying_pkg = None
+    
+    # Reconstruct the player's package operations based on the current route
+    if "completed_routes" in st.session_state and "player" in st.session_state.completed_routes:
+        # Get player's route
+        player_route = st.session_state.completed_routes["player"]
+        
+        # Get all packages (including delivered ones)
+        all_packages = st.session_state.packages
+        delivered_packages = st.session_state.delivered_packages
+        
+        # Build a map of which packages were picked up/delivered at each location
+        for i, location in enumerate(player_route):
+            # Check pickups
+            for pkg in all_packages:
+                if pkg["pickup"] == location and (pkg in delivered_packages or pkg.get("status") == "delivered"):
+                    # If we're not carrying a package and this is the pickup location
+                    if carrying_pkg is None:
+                        player_package_ops.append({
+                            "location": location,
+                            "action": "pickup",
+                            "package_id": pkg["id"]
+                        })
+                        carrying_pkg = pkg["id"]
+            
+            # Check deliveries (if carrying a package)
+            if carrying_pkg is not None:
+                for pkg in all_packages:
+                    if pkg["id"] == carrying_pkg and pkg["delivery"] == location:
+                        player_package_ops.append({
+                            "location": location,
+                            "action": "deliver",
+                            "package_id": pkg["id"]
+                        })
+                        carrying_pkg = None
+    
     with cc1:
         st.markdown("**Your Route:**")
-        route_text = " → ".join(st.session_state.completed_routes["player"])
-        st.code(route_text)
+        if "completed_routes" in st.session_state and "player" in st.session_state.completed_routes:
+            player_route = st.session_state.completed_routes["player"]
+            # Create and display player route with package operations
+            route_text = create_annotated_route(player_route, player_package_ops)
+            st.code(route_text)
+        else:
+            st.code("No route data available")
+            
     with cc2:
         title = "**Optimal Route:**" if not results.get('found_better_route', False) else "**Optimal Route (Your Solution!):**"
         st.markdown(title)
         if "completed_routes" in st.session_state and "optimal" in st.session_state.completed_routes:
             optimal_path = st.session_state.completed_routes["optimal"]
+            
             if optimal_path and len(optimal_path) > 1:
-                # First create the basic location route text 
-                route_text = " → ".join(optimal_path)
-                
-                # Get all packages
-                all_packages = st.session_state.packages
-
-                # Create an enhanced version with package operations
+                # Get optimal route with package operations
                 if hasattr(st.session_state, 'completed_optimal_route') and st.session_state.completed_optimal_route:
                     optimal_actions = st.session_state.completed_optimal_route
                     
-                    # If player found better route, show their route with simplified package operations
+                    # Process optimal actions to extract package operations
+                    optimal_package_ops = []
+                    for action in optimal_actions:
+                        if action["action"] in ["pickup", "deliver"] and action["package_id"] is not None:
+                            optimal_package_ops.append(action)
+                    
+                    # Create and display optimal route with package operations
+                    route_text = create_annotated_route(optimal_path, optimal_package_ops)
+                    
+                    # If player found better route, show their route
                     if results.get('found_better_route', False):
-                        st.code(route_text)
+                        st.code(create_annotated_route(player_route, player_package_ops))
                         st.markdown("**Note:** Your route was more efficient! The game now recognizes your solution as optimal.")
                     else:
-                        # Create a map of location to actions
-                        location_actions = {}
-                        for action in optimal_actions:
-                            loc = action["location"]
-                            act_type = action["action"]
-                            pkg_id = action["package_id"]
-                            
-                            if loc not in location_actions:
-                                location_actions[loc] = []
-                            
-                            if act_type in ["pickup", "deliver"] and pkg_id is not None:
-                                location_actions[loc].append((act_type, pkg_id))
-                        
-                        # Create enhanced labels for each location (keeping one package at a time limitation)
-                        action_labels = []
-                        current_package = None
-                        for loc in optimal_path:
-                            if loc in location_actions and location_actions[loc]:
-                                # Add actions to the location label
-                                actions = []
-                                for act_type, pkg_id in location_actions[loc]:
-                                    if act_type == "pickup" and current_package is None:
-                                        action_code = "P"
-                                        current_package = pkg_id
-                                        actions.append(f"{action_code}{pkg_id}")
-                                    elif act_type == "deliver" and current_package == pkg_id:
-                                        action_code = "D"
-                                        current_package = None
-                                        actions.append(f"{action_code}{pkg_id}")
-                                
-                                # Format the location with actions
-                                if actions:
-                                    label = f"{loc} ({', '.join(actions)})"
-                                else:
-                                    label = loc
-                            else:
-                                label = loc
-                            
-                            action_labels.append(label)
-                        
-                        # If we successfully created the enhanced labels, use them
-                        if action_labels:
-                            route_text = " → ".join(action_labels)
-                            st.code(route_text)
-                        else:
-                            st.code(route_text)
-
-                # Ensure all packages are represented in the route
-                all_packages_in_route = True
-                for pkg in all_packages:
-                    pkg_id = pkg["id"]
-                    pickup_found = False
-                    delivery_found = False
-                    
-                    for action in optimal_actions:
-                        if action["action"] == "pickup" and action["package_id"] == pkg_id:
-                            pickup_found = True
-                        if action["action"] == "deliver" and action["package_id"] == pkg_id:
-                            delivery_found = True
-                    
-                    if not (pickup_found and delivery_found):
-                        all_packages_in_route = False
-                        break
-                
-                # If packages are missing, add an explanatory note
-                if not all_packages_in_route:
-                    st.info("Note: The displayed optimal route shows key operations. All packages are handled in the optimal solution.")
+                        st.code(route_text)
+                else:
+                    # Simple route display without package operations
+                    route_text = " → ".join(optimal_path)
+                    st.code(route_text)
             else:
                 st.markdown("*No optimal route available due to road closure constraints.*")
         else:
@@ -260,12 +284,16 @@ def render_game_results():
         
         1. **One package at a time:** Both you and the AI can only carry one package at a time.
         2. **Road closures:** The optimal route accounts for road closures.
-        3. **Location constraints:** Factory must be visited before Shop, and DHL Hub before Residence.
+        3. **Location constraints:** Warehouse must be visited before Shop, and Distribution Center before Home.
         4. **Efficiency:** Route with the shortest total distance while satisfying all constraints.
         
         **Legend:**
         - P1 = Pickup Package #1
         - D1 = Deliver Package #1
+        - P2 = Pickup Package #2
+        - D2 = Deliver Package #2
+        - P3 = Pickup Package #3
+        - D3 = Deliver Package #3
         """)
         
         if results.get('found_better_route', False):

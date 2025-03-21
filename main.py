@@ -234,7 +234,7 @@ with tab3:
 
     ### Basic Gameplay
     1. **Register** with your details and select difficulty level
-    2. **Navigate** starting from the Factory
+    2. **Navigate** starting from the Warehouse
     3. **Overcome** road closures (1-3 depending on difficulty)
     4. **Deliver** packages while following constraints
     5. **Complete** to see your score
@@ -246,8 +246,8 @@ with tab3:
 
     ### Rules & Constraints
     - You can only carry one package at a time
-    - Factory must be visited before Shop
-    - DHL Hub must be visited before Residence
+    - Warehouse must be visited before Shop
+    - Distribution Center must be visited before Home
     - All locations must be visited
     - All packages must be delivered
     

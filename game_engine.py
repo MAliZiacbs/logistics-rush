@@ -88,18 +88,18 @@ def start_new_game():
     
     st.session_state.current_package = None
     st.session_state.delivered_packages = []
-    st.session_state.current_route = ["Factory"]  # Start at Factory
+    st.session_state.current_route = ["Warehouse"]  # Start at Warehouse
     st.session_state.optimal_route = None
     st.session_state.optimal_path = None
     
     locations_to_visit = list(LOCATIONS.keys())
-    start_location = "Factory"
+    start_location = "Warehouse"
 
     st.session_state.constraints = {
-        "Factory": "Must visit before Shop",
-        "Shop": "Must visit after Factory",
-        "DHL Hub": "Must visit before Residence",
-        "Residence": "Must visit after DHL Hub"
+        "Warehouse": "Must visit before Shop",
+        "Shop": "Must visit after Warehouse",
+        "Distribution Center": "Must visit before Home",
+        "Home": "Must visit after Distribution Center"
     }
     
     # First generate packages
@@ -134,7 +134,7 @@ def start_new_game():
     except Exception as e:
         # Fallback to a safe configuration if road closure generation fails
         st.warning("Using default road closures to ensure a playable game.")
-        st.session_state.closed_roads = [("Factory", "Shop")]  # Safe default
+        st.session_state.closed_roads = [("Warehouse", "Shop")]  # Safe default
         update_difficulty_display(1)  # Set to Easy mode
 
     try:
@@ -158,7 +158,7 @@ def start_new_game():
         optimal_distance = 10  # Arbitrary distance as fallback
     
     st.session_state.optimal_route = optimal_route
-    st.session_state.optimal_path = optimal_path if optimal_path else ["Factory"]
+    st.session_state.optimal_path = optimal_path if optimal_path else ["Warehouse"]
     st.session_state.optimal_distance = optimal_distance if optimal_distance != float('inf') else 0
 
 def process_location_checkin(location):
@@ -175,10 +175,10 @@ def process_location_checkin(location):
 
     temp_route = st.session_state.current_route + [location]
     if not check_constraints(temp_route):
-        if location == "Shop" and "Factory" not in st.session_state.current_route:
-            st.error("You must visit Factory before Shop!")
-        elif location == "Residence" and "DHL Hub" not in st.session_state.current_route:
-            st.error("You must visit DHL Hub before Residence!")
+        if location == "Shop" and "Warehouse" not in st.session_state.current_route:
+            st.error("You must visit Warehouse before Shop!")
+        elif location == "Home" and "Distribution Center" not in st.session_state.current_route:
+            st.error("You must visit Distribution Center before Home!")
         return None
     
     # First update the route - this is critical for visualization

@@ -8,27 +8,27 @@ def generate_packages(num_packages=3):
     locations = [loc for loc in LOCATIONS.keys()]
     packages = []
     
-    # Special package that requires Factory → Shop route
-    factory_to_shop = {
+    # Special package that requires Warehouse → Shop route
+    warehouse_to_shop = {
         "id": 1,
-        "pickup": "Factory",
+        "pickup": "Warehouse",
         "delivery": "Shop",
         "status": "waiting",
         "icon": "📦",
-        "description": "Factory products for Shop"
+        "description": "Warehouse products for Shop"
     }
-    packages.append(factory_to_shop)
+    packages.append(warehouse_to_shop)
     
-    # Special package that requires DHL Hub → Residence route
-    dhl_to_residence = {
+    # Special package that requires Distribution Center → Home route
+    distribution_to_home = {
         "id": 2,
-        "pickup": "DHL Hub",
-        "delivery": "Residence",
+        "pickup": "Distribution Center",
+        "delivery": "Home",
         "status": "waiting",
         "icon": "📬",
-        "description": "Home delivery from DHL Hub"
+        "description": "Home delivery from Distribution Center"
     }
-    packages.append(dhl_to_residence)
+    packages.append(distribution_to_home)
     
     # Add more random packages if requested
     if num_packages > 2:
@@ -36,15 +36,15 @@ def generate_packages(num_packages=3):
         
         # Define valid combinations that don't conflict with constraints
         valid_combinations = [
-            ("Factory", "DHL Hub"),
-            ("Factory", "Residence"),
-            ("DHL Hub", "Factory"),
-            ("DHL Hub", "Shop"),
-            ("Shop", "DHL Hub"),
-            ("Shop", "Factory"),
-            ("Shop", "Residence"),
-            ("Residence", "Factory"),
-            ("Residence", "Shop")
+            ("Warehouse", "Distribution Center"),
+            ("Warehouse", "Home"),
+            ("Distribution Center", "Warehouse"),
+            ("Distribution Center", "Shop"),
+            ("Shop", "Distribution Center"),
+            ("Shop", "Warehouse"),
+            ("Shop", "Home"),
+            ("Home", "Warehouse"),
+            ("Home", "Shop")
         ]
         
         # Add additional random packages
