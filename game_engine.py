@@ -105,7 +105,7 @@ def start_new_game():
     num_closures = st.session_state.get('num_road_closures', 1)
     
     try:
-        # Generate road closures based on selected difficulty
+        # Generate road closures based on selected difficulty with better validation
         st.session_state.closed_roads = generate_road_closures(num_closures=num_closures)
         
         # Update difficulty display based on actual number of closures generated
@@ -128,7 +128,7 @@ def start_new_game():
             st.warning("No road closures were possible while ensuring all packages could be delivered.")
     except Exception as e:
         # Fallback to a safe configuration if road closure generation fails
-        st.warning("Using default road closures to ensure a playable game.")
+        st.warning(f"Using default road closures to ensure a playable game. Error: {e}")
         st.session_state.closed_roads = [("Warehouse", "Shop")]  # Safe default
         update_difficulty_display(1)  # Set to Easy mode
 
@@ -136,7 +136,8 @@ def start_new_game():
         # Try to find an optimal route with the improved algorithm
         optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
         
-        # Verify the optimal route is valid and all packages can be delivered
+        # Verify the optimal route is valid
+        from routing import validate_optimal_route
         valid_optimal = validate_optimal_route(optimal_route, optimal_path, st.session_state.packages)
         
         if not valid_optimal:
@@ -145,12 +146,35 @@ def start_new_game():
             # If validation fails, try the fallback route
             from routing import fallback_route
             optimal_route, optimal_path, optimal_distance = fallback_route(start_location, locations_to_visit, st.session_state.packages)
+            
+        # Sanity check for distance
+        if optimal_distance < 50 or optimal_distance == float('inf'):
+            st.warning("Optimal route has unrealistic distance. Using validated distance calculation.")
+            
+            # Recalculate distance properly
+            from routing import calculate_route_distance
+            _, recalculated_distance = calculate_route_distance(optimal_path)
+            
+            if recalculated_distance >= 50 and recalculated_distance != float('inf'):
+                optimal_distance = recalculated_distance
+            else:
+                # Use minimum distances from config as a fallback
+                from config import DISTANCES
+                min_segment_distance = min([d for d in DISTANCES.values() if d > 0])
+                optimal_distance = min_segment_distance * (len(locations_to_visit) - 1)
+                
     except Exception as e:
         st.error(f"Route calculation error: {e}")
         # Create a minimal valid route as fallback
         optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in locations_to_visit]
         optimal_path = locations_to_visit
-        optimal_distance = 10  # Arbitrary distance as fallback
+        
+        # Use reasonable distance as fallback
+        from config import DISTANCES
+        fallback_distance = sum(DISTANCES.get((locations_to_visit[i], locations_to_visit[i+1]), 
+                                DISTANCES.get((locations_to_visit[i+1], locations_to_visit[i]), 300)) 
+                                for i in range(len(locations_to_visit)-1))
+        optimal_distance = max(fallback_distance, 100)  # Ensure at least 100cm
     
     st.session_state.optimal_route = optimal_route
     st.session_state.optimal_path = optimal_path if optimal_path else ["Warehouse"]
@@ -248,8 +272,8 @@ def end_game():
 
     # Get the optimal distance using the stored path
     optimal_distance = getattr(st.session_state, 'optimal_distance', 0)
-    if optimal_distance == 0 and st.session_state.optimal_route:
-        _, optimal_distance = calculate_route_distance(st.session_state.optimal_route)
+    if optimal_distance == 0 and st.session_state.optimal_path:
+        _, optimal_distance = calculate_route_distance(st.session_state.optimal_path)
         if optimal_distance == float('inf'):
             optimal_distance = 0  # Fallback if no valid optimal route
     
@@ -259,6 +283,20 @@ def end_game():
         segment_distance = get_distance(st.session_state.current_route[i], st.session_state.current_route[i+1])
         if segment_distance != float('inf'):
             player_distance += segment_distance
+
+    # Sanity check for optimal distance - prevent unrealistically low values
+    if optimal_distance < 50 and player_distance > 0:  # 50cm minimum threshold
+        # Recalculate optimal distance using the optimal path
+        if hasattr(st.session_state, 'optimal_path') and len(st.session_state.optimal_path) > 1:
+            _, recalculated_distance = calculate_route_distance(st.session_state.optimal_path)
+            if recalculated_distance != float('inf') and recalculated_distance >= 50:
+                optimal_distance = recalculated_distance
+            else:
+                # Use a reasonable fallback - 60% of player's distance as a heuristic
+                optimal_distance = max(player_distance * 0.6, 100)  # At least 100cm
+        else:
+            # Use a reasonable fallback - 60% of player's distance as a heuristic
+            optimal_distance = max(player_distance * 0.6, 100)  # At least 100cm
 
     # Compare player's route to optimal route
     # If player's distance is better (shorter) than the "optimal", update the optimal
@@ -275,7 +313,7 @@ def end_game():
         efficiency = 100  # Perfect efficiency
     else:
         # Calculate efficiency using real distances
-        efficiency = min(100, int((optimal_distance / player_distance) * 100)) if player_distance > 0 and optimal_distance > 0 else 0
+        efficiency = min(100, int((optimal_distance / max(player_distance, 1)) * 100)) if player_distance > 0 and optimal_distance > 0 else 0
 
     # Adjust time expectations based on real distances
     # Average human walking speed is around 1.4 meters per second (140 cm/s)
