@@ -7,6 +7,7 @@ from routing import solve_tsp, get_distance, calculate_route_distance
 from feature_road_closures import generate_road_closures, is_road_closed
 from feature_packages import generate_packages
 from data_management import save_player_data
+import route_analysis
 
 def update_difficulty_display(num_actual_closures):
     """Update the displayed difficulty based on the actual number of closures"""
@@ -74,12 +75,6 @@ def validate_optimal_route(route, path, packages):
     
     # If we passed all checks, the route is valid
     return True
-
-# This is a patch for game_engine.py
-# Update the start_new_game function to better handle road closures
-
-# This is a patch for game_engine.py
-# Update the start_new_game function to better handle road closures
 
 def start_new_game():
     """Start a new game with all features combined - with improved error handling"""
@@ -185,8 +180,13 @@ def process_location_checkin(location):
     st.session_state.current_route.append(location)
             
     if st.session_state.current_package and st.session_state.current_package["delivery"] == location:
+        package_id = st.session_state.current_package["id"]
         st.session_state.current_package["status"] = "delivered"
         st.session_state.delivered_packages.append(st.session_state.current_package)
+        
+        # Record this delivery operation using the route_analysis module
+        route_analysis.record_delivery(location, package_id)
+        
         st.session_state.current_package = None
         st.success(f"📦 Package delivered successfully to {location}!")
         
@@ -213,6 +213,11 @@ def pickup_package(package):
         return
     package["status"] = "picked_up"
     st.session_state.current_package = package
+    
+    # Record this pickup operation using the route_analysis module
+    current_location = st.session_state.current_route[-1] if st.session_state.current_route else None
+    route_analysis.record_pickup(current_location, package["id"])
+    
     st.success(f"Package #{package['id']} picked up! Deliver to {package['delivery']}.")
 
 def get_game_status():
@@ -234,7 +239,6 @@ def get_game_status():
         "progress_text": f"Overall Progress: {combined_progress}%"
     }
 
-# Add these improved functions to game_engine.py
 def end_game():
     """End the game and calculate results with improved efficiency calculation and route validation"""
     if not st.session_state.game_active:
@@ -389,6 +393,9 @@ def end_game():
             "num_road_closures": len(st.session_state.closed_roads)
         }
         save_player_data(result_data)
+    
+    # Finalize the route data for analysis
+    route_analysis.finalize_route_data()
     
     st.session_state.game_active = False
 

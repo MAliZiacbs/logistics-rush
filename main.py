@@ -13,6 +13,7 @@ from game_engine import start_new_game, process_location_checkin, get_game_statu
 from visualization import visualize_map 
 from visualization_renders import render_action_controls, render_game_info, render_game_results
 from data_management import save_player_data, export_player_data, reset_leaderboard, reset_all_data
+import route_analysis  # Import the new route analysis module
 
 # Page configuration
 st.set_page_config(page_title="Logistics Rush", page_icon="🚚", layout="wide")
@@ -84,6 +85,9 @@ if 'total_packages' not in st.session_state:
 
 if 'num_road_closures' not in st.session_state:
     st.session_state.num_road_closures = 1
+
+# Initialize route tracking
+route_analysis.init_route_tracking()
 
 # Main UI
 st.markdown('<h1 class="main-title">🚚 Logistics Rush</h1>', unsafe_allow_html=True)

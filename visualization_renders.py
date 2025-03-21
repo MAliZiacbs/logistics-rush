@@ -4,6 +4,7 @@ from config import LOCATIONS
 from routing import suggest_next_location
 from feature_packages import get_available_packages_at_location, get_package_hints
 from game_engine import process_location_checkin, pickup_package, get_game_status
+import route_analysis
 
 def render_action_controls():
     """Render only the Check In and Pickup Package sections below the map"""
@@ -156,78 +157,6 @@ def render_game_results():
 
     st.markdown("### Route Analysis")
     
-    # Helper functions for route display
-    def create_annotated_route(route, package_operations=None):
-        """
-        Create a route representation with P1, P2, P3 for pickups and D1, D2, D3 for deliveries
-        """
-        if not route:
-            return "No route available"
-            
-        # Map to track package operations at each location
-        location_ops = {}
-        
-        # Process package operations if provided
-        if package_operations:
-            for op in package_operations:
-                location = op.get("location")
-                action = op.get("action")
-                pkg_id = op.get("package_id")
-                
-                if location and action in ["pickup", "deliver"] and pkg_id:
-                    if location not in location_ops:
-                        location_ops[location] = []
-                    
-                    # Use P1, P2, etc for pickups and D1, D2, etc for deliveries
-                    prefix = "P" if action == "pickup" else "D"
-                    location_ops[location].append(f"{prefix}{pkg_id}")
-        
-        # Create the annotated route text
-        annotated_route = []
-        for loc in route:
-            if loc in location_ops and location_ops[loc]:
-                operations = ", ".join(location_ops[loc])
-                annotated_route.append(f"{loc} ({operations})")
-            else:
-                annotated_route.append(loc)
-                
-        return " → ".join(annotated_route)
-
-    def reconstruct_package_operations(route, packages):
-        """
-        Reconstruct package operations from a route and package data
-        """
-        operations = []
-        carrying_pkg = None
-        
-        for i, location in enumerate(route):
-            # Check for deliveries first (deliver before pickup if at same location)
-            if carrying_pkg is not None:
-                for pkg in packages:
-                    if pkg["id"] == carrying_pkg and pkg["delivery"] == location:
-                        operations.append({
-                            "location": location,
-                            "action": "deliver",
-                            "package_id": pkg["id"]
-                        })
-                        carrying_pkg = None
-            
-            # Then check for pickups
-            if carrying_pkg is None:
-                for pkg in packages:
-                    # Find a package that was picked up here
-                    if pkg["pickup"] == location and pkg.get("status") == "delivered":
-                        # For reconstructing, we need to ensure packages are picked up in order
-                        operations.append({
-                            "location": location,
-                            "action": "pickup",
-                            "package_id": pkg["id"]
-                        })
-                        carrying_pkg = pkg["id"]
-                        break
-        
-        return operations
-    
     cc1, cc2 = st.columns(2)
     
     with cc1:
@@ -235,42 +164,11 @@ def render_game_results():
         if "completed_routes" in st.session_state and "player" in st.session_state.completed_routes:
             player_route = st.session_state.completed_routes["player"]
             
-            # Get all packages (including delivered ones)
-            all_packages = st.session_state.packages
-            delivered_packages = st.session_state.delivered_packages
-            
-            # Build a correct sequence of package operations
-            player_package_ops = []
-            carrying_pkg = None
-            
-            # Process each location in the route
-            for location in player_route:
-                # First handle deliveries (if carrying a package)
-                if carrying_pkg is not None:
-                    pkg = next((p for p in all_packages if p["id"] == carrying_pkg), None)
-                    if pkg and pkg["delivery"] == location:
-                        player_package_ops.append({
-                            "location": location,
-                            "action": "deliver",
-                            "package_id": carrying_pkg
-                        })
-                        carrying_pkg = None
-                
-                # Then handle pickups (if not carrying anything)
-                if carrying_pkg is None:
-                    # Find packages that were picked up at this location
-                    for pkg in delivered_packages:
-                        if pkg["pickup"] == location:
-                            player_package_ops.append({
-                                "location": location,
-                                "action": "pickup",
-                                "package_id": pkg["id"]
-                            })
-                            carrying_pkg = pkg["id"]
-                            break
+            # Get player package operations using the new module
+            player_package_ops = route_analysis.get_route_operations(is_player_route=True)
             
             # Create and display player route with package operations
-            route_text = create_annotated_route(player_route, player_package_ops)
+            route_text = route_analysis.create_annotated_route(player_route, player_package_ops)
             st.code(route_text)
         else:
             st.code("No route data available")
@@ -282,32 +180,17 @@ def render_game_results():
             optimal_path = st.session_state.completed_routes["optimal"]
             
             if optimal_path and len(optimal_path) > 1:
-                # Get optimal route with package operations
-                if hasattr(st.session_state, 'completed_optimal_route') and st.session_state.completed_optimal_route:
-                    optimal_actions = st.session_state.completed_optimal_route
-                    
-                    # Filter for only pickup and delivery actions
-                    optimal_package_ops = []
-                    for action in optimal_actions:
-                        if action["action"] in ["pickup", "deliver"] and action["package_id"] is not None:
-                            optimal_package_ops.append(action)
-                    
-                    # If no package operations found, try to reconstruct them
-                    if not optimal_package_ops:
-                        optimal_package_ops = reconstruct_package_operations(optimal_path, st.session_state.packages)
-                    
-                    # Create and display optimal route with package operations
-                    route_text = create_annotated_route(optimal_path, optimal_package_ops)
-                    
-                    # If player found better route, show their route
-                    if results.get('found_better_route', False):
-                        st.code(create_annotated_route(player_route, player_package_ops))
-                        st.markdown("**Note:** Your route was more efficient! The game now recognizes your solution as optimal.")
-                    else:
-                        st.code(route_text)
+                # Get optimal route operations using the new module
+                optimal_package_ops = route_analysis.get_route_operations(is_player_route=False)
+                
+                # Create and display optimal route with package operations
+                route_text = route_analysis.create_annotated_route(optimal_path, optimal_package_ops)
+                
+                # If player found better route, show their route
+                if results.get('found_better_route', False):
+                    st.code(route_analysis.create_annotated_route(player_route, player_package_ops))
+                    st.markdown("**Note:** Your route was more efficient! The game now recognizes your solution as optimal.")
                 else:
-                    # If no package operations available, show simple route
-                    route_text = " → ".join(optimal_path)
                     st.code(route_text)
             else:
                 st.markdown("*No optimal route available due to road closure constraints.*")
