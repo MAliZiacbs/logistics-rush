@@ -67,6 +67,22 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                     borderwidth=2,
                     opacity=0.9
                 )
+            else:
+                # Add distance labels to roads
+                mid_x = (LOCATIONS[loc1]["position"][0] + LOCATIONS[loc2]["position"][0]) / 2
+                mid_y = (LOCATIONS[loc1]["position"][1] + LOCATIONS[loc2]["position"][1]) / 2
+                distance = get_distance(loc1, loc2)
+                
+                fig.add_annotation(
+                    x=mid_x, y=mid_y,
+                    text=f"{int(distance)} cm",
+                    showarrow=False,
+                    font=dict(size=10, color="#000000"),
+                    bgcolor="rgba(255, 255, 255, 0.7)",
+                    borderpad=2,
+                    borderwidth=1,
+                    opacity=0.9
+                )
 
     # Track repeated traversals to offset lines
     def get_offset(route, start_idx, end_idx):
@@ -95,7 +111,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                             line=dict(color='#ffffff', width=2)),
                 name=f'Your Route Step {i+1}' if i == 0 else None,
                 showlegend=(i == 0),
-                hoverinfo='text', hovertext=f"Step {i+1}: {player_route[i]} → {player_route[i+1]}"
+                hoverinfo='text', hovertext=f"Step {i+1}: {player_route[i]} → {player_route[i+1]} ({get_distance(player_route[i], player_route[i+1]):.0f} cm)"
             ))
             # Add arrow
             dx, dy = x1 - x0, y1_offset - y0_offset
@@ -212,7 +228,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
                 name=f'Optimal Route Step {i+1}' if i == 0 else None,
                 showlegend=(i == 0),
                 hoverinfo='text', 
-                hovertext=f"Step {i+1}: {loc1} → {loc2}"
+                hovertext=f"Step {i+1}: {loc1} → {loc2} ({get_distance(loc1, loc2):.0f} cm)"
             ))
             
             # Add arrow
@@ -297,7 +313,7 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             pending_packages = [p for p in st.session_state.packages if p["pickup"] == location and p["status"] == "waiting"]
             for i, pkg in enumerate(pending_packages[:3]):
                 fig.add_annotation(x=details["position"][0], y=details["position"][1] - 50 - (i * 20), 
-                                   text=f"{pkg['icon']} #{pkg['id']}", showarrow=False, font=dict(size=16), 
+                                   text=f"{pkg['icon']} #{pkg['id']} to {pkg['delivery']}", showarrow=False, font=dict(size=16), 
                                    bgcolor="rgba(255,255,255,0.8)", bordercolor="#f97316", borderwidth=2, borderpad=3) # Changed from #10B981 to orange
 
     # Additional annotations
@@ -331,6 +347,14 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
             fig.add_annotation(x=400, y=40, text="ROUTE COMPARISON", showarrow=False, 
                                font=dict(size=16, color="#333333", weight="bold"), 
                                bgcolor="rgba(255,255,255,0.8)", borderpad=3)
+    
+    # Add real distance info
+    if show_roads:
+        fig.add_annotation(x=650, y=40, 
+                          text="DISTANCES SHOWN IN CENTIMETERS", 
+                          showarrow=False, 
+                          font=dict(size=12, color="#333333", weight="bold"), 
+                          bgcolor="rgba(255,255,255,0.8)", borderpad=3)
     
     fig.add_annotation(x=400, y=370, text="LOGISTICS RUSH", showarrow=False, 
                        font=dict(size=24, color="#333333", family="Arial Black"), opacity=0.8)

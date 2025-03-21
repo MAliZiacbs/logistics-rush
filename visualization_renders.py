@@ -103,14 +103,25 @@ def render_game_results():
     c1, c2 = st.columns(2)
     with c1:
         st.metric("Time", f"{results['time']:.1f}s")
-        st.metric("Your Distance", f"{results['player_distance']:.1f}")
+        st.metric("Your Distance", f"{results['player_distance']:.1f} cm")
     with c2:
         st.metric("Efficiency", f"{results['efficiency']}%")
-        st.metric("Optimal Distance", f"{results['optimal_distance']:.1f}")
+        st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
 
     # Display a special message if player found a better route
     if results.get('found_better_route', False):
         st.success("🏆 Congratulations! You found a more efficient route than the algorithm calculated. Your route is now considered the optimal solution!")
+
+    # Add expected time based on real distances
+    expected_time = results.get('expected_time', 0)
+    if expected_time > 0:
+        time_ratio = results['time'] / expected_time
+        time_message = f"Estimated time for this route: {expected_time:.1f}s"
+        if time_ratio < 0.8:
+            time_message += f" (You were {(1-time_ratio)*100:.0f}% faster than expected! 🚀)"
+        elif time_ratio > 1.2:
+            time_message += f" (You took {(time_ratio-1)*100:.0f}% longer than expected)"
+        st.info(time_message)
 
     st.markdown('<div class="score-breakdown">', unsafe_allow_html=True)
     st.markdown("### Score Breakdown")
@@ -155,6 +166,23 @@ def render_game_results():
         for road in st.session_state.closed_roads:
             st.markdown(f"⛔️ {road[0]} ↔️ {road[1]}")
 
+    # Display distance table with real measurements
+    st.markdown("### Distance Table (cm)")
+    
+    distance_data = []
+    for loc1 in LOCATIONS:
+        row = {"From": loc1}
+        for loc2 in LOCATIONS:
+            if loc1 != loc2:
+                distance = get_distance(loc1, loc2)
+                row[loc2] = f"{int(distance)} cm"
+        distance_data.append(row)
+    
+    # Convert to DataFrame and display
+    import pandas as pd
+    distance_df = pd.DataFrame(distance_data)
+    st.dataframe(distance_df, use_container_width=True)
+
     st.markdown("### Route Analysis")
     
     cc1, cc2 = st.columns(2)
@@ -170,6 +198,15 @@ def render_game_results():
             # Create and display player route with package operations
             route_text = route_analysis.create_annotated_route(player_route, player_package_ops)
             st.code(route_text)
+            
+            # Calculate and display the total distance
+            if len(player_route) > 1:
+                total_distance = 0
+                for i in range(len(player_route) - 1):
+                    segment_distance = get_distance(player_route[i], player_route[i+1])
+                    if segment_distance != float('inf'):
+                        total_distance += segment_distance
+                st.markdown(f"**Total Distance:** {total_distance:.1f} cm")
         else:
             st.code("No route data available")
             
@@ -190,8 +227,24 @@ def render_game_results():
                 if results.get('found_better_route', False):
                     st.code(route_analysis.create_annotated_route(player_route, player_package_ops))
                     st.markdown("**Note:** Your route was more efficient! The game now recognizes your solution as optimal.")
+                    # Calculate and display the total distance
+                    if len(player_route) > 1:
+                        total_distance = 0
+                        for i in range(len(player_route) - 1):
+                            segment_distance = get_distance(player_route[i], player_route[i+1])
+                            if segment_distance != float('inf'):
+                                total_distance += segment_distance
+                        st.markdown(f"**Total Distance:** {total_distance:.1f} cm")
                 else:
                     st.code(route_text)
+                    # Calculate and display the total distance
+                    if len(optimal_path) > 1:
+                        total_distance = 0
+                        for i in range(len(optimal_path) - 1):
+                            segment_distance = get_distance(optimal_path[i], optimal_path[i+1])
+                            if segment_distance != float('inf'):
+                                total_distance += segment_distance
+                        st.markdown(f"**Total Distance:** {total_distance:.1f} cm")
             else:
                 st.markdown("*No optimal route available due to road closure constraints.*")
         else:
@@ -206,6 +259,7 @@ def render_game_results():
         2. **Road closures:** The optimal route accounts for road closures.
         3. **Location constraints:** Warehouse must be visited before Shop, and Distribution Center before Home.
         4. **Efficiency:** Route with the shortest total distance while satisfying all constraints.
+        5. **Real distances:** This game uses real physical distances measured in centimeters.
         
         **Legend:**
         - P1 = Pickup Package #1

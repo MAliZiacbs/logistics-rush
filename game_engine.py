@@ -274,11 +274,28 @@ def end_game():
         player_found_better_route = True
         efficiency = 100  # Perfect efficiency
     else:
-        # Calculate efficiency normally
+        # Calculate efficiency using real distances
         efficiency = min(100, int((optimal_distance / player_distance) * 100)) if player_distance > 0 and optimal_distance > 0 else 0
 
+    # Adjust time expectations based on real distances
+    # Average human walking speed is around 1.4 meters per second (140 cm/s)
+    # Allow about 10 seconds per location for making decisions
+    # 3 packages with about 15 seconds for each pickup/delivery operation
+    # Total route in cm / 140 cm/s + 10s * number of locations + 15s * 6 operations
+    average_speed_cm_per_sec = 140
+    location_decision_time = 10  # seconds
+    package_operation_time = 15  # seconds
+    
+    expected_travel_time = player_distance / average_speed_cm_per_sec
+    expected_decision_time = len(set(st.session_state.current_route)) * location_decision_time
+    expected_package_time = 6 * package_operation_time  # 3 packages * 2 operations (pickup/delivery)
+    
+    expected_total_time = expected_travel_time + expected_decision_time + expected_package_time
+    
+    # Calculate time factor based on real distance expectations
+    time_factor = max(0, 100 - ((game_time / expected_total_time) * 50))  # 50% penalty for taking 2x expected time
+    
     weights = SCORING_WEIGHTS["Logistics Challenge"]
-    time_factor = max(0, 100 - (game_time / 3))
     constraints_followed = check_constraints(st.session_state.current_route)
     constraint_factor = 100 if constraints_followed else 0
     delivery_percent = min(100, int((len(st.session_state.delivered_packages) / max(1, st.session_state.total_packages)) * 100))
@@ -293,9 +310,11 @@ def end_game():
     player_score = int(sum(score_components.values()))
     player_score = max(0, min(100, player_score))
 
-    # Calculate optimal score (assuming fastest time and all deliveries)
-    optimal_time = optimal_distance * 2  # Arbitrary: 2 seconds per unit distance
-    optimal_time_factor = max(0, 100 - (optimal_time / 3))
+    # Calculate optimal score with realistic time expectations
+    optimal_travel_time = optimal_distance / average_speed_cm_per_sec
+    optimal_total_time = optimal_travel_time + expected_decision_time + expected_package_time
+    optimal_time_factor = max(0, 100 - ((optimal_total_time / expected_total_time) * 50))
+    
     optimal_score_components = {
         "efficiency": 100 * weights["efficiency"],
         "delivery": 100 * weights["delivery"],
@@ -335,7 +354,7 @@ def end_game():
         # Fallback if optimal_route is not available
         optimal_path = st.session_state.optimal_path if hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path else []
     
-    # NEW: Validate that the optimal path doesn't use closed roads
+    # Validate that the optimal path doesn't use closed roads
     if hasattr(st.session_state, 'closed_roads') and st.session_state.closed_roads:
         from feature_road_closures import is_road_closed
         from routing import calculate_segment_path
@@ -390,7 +409,9 @@ def end_game():
             "score": player_score,
             "route": st.session_state.current_route.copy(),
             "found_better_route": player_found_better_route,
-            "num_road_closures": len(st.session_state.closed_roads)
+            "num_road_closures": len(st.session_state.closed_roads),
+            "player_distance_cm": player_distance,  # Store distance in cm
+            "optimal_distance_cm": optimal_distance  # Store distance in cm
         }
         save_player_data(result_data)
     
@@ -411,7 +432,9 @@ def end_game():
         "optimal_score": optimal_score,
         "improvement_percent": improvement_percent,
         "found_better_route": player_found_better_route,
-        "difficulty": len(st.session_state.closed_roads)
+        "difficulty": len(st.session_state.closed_roads),
+        "expected_time": expected_total_time,  # Add expected time for UI
+        "distance_units": "cm"  # Add distance units
     }
     st.session_state.game_results = results
     return results

@@ -18,14 +18,14 @@ ROAD_SEGMENTS = [
     ("Shop", "Home"),
 ]
 
-# Simplified graph of distances between locations (no Central Hub)
+# Updated distances based on real measurements in centimeters
 DISTANCES = {
-    ("Warehouse", "Distribution Center"): 3.0,
-    ("Warehouse", "Shop"): 4.5,
-    ("Warehouse", "Home"): 2.0,
-    ("Distribution Center", "Shop"): 2.0,
-    ("Distribution Center", "Home"): 4.5,
-    ("Shop", "Home"): 3.0,
+    ("Warehouse", "Distribution Center"): 302,
+    ("Warehouse", "Shop"): 354,
+    ("Warehouse", "Home"): 183,
+    ("Distribution Center", "Shop"): 183,
+    ("Distribution Center", "Home"): 354,
+    ("Shop", "Home"): 302,
 }
 
 # Game modes with clear descriptions - unchanged
