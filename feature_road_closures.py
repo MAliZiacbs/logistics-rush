@@ -83,17 +83,20 @@ def generate_road_closures(num_closures=1, max_attempts=100):
     
     # First try using a predefined safe closure combination based on difficulty
     if num_closures in safe_closures:
-        chosen_closures = random.choice(safe_closures[num_closures])
+        # Shuffle the safe closures to add randomness
+        safe_closure_options = safe_closures[num_closures].copy()
+        random.shuffle(safe_closure_options)
         
-        # Validate with packages
-        test_G = G.copy()
-        for road in chosen_closures:
-            if test_G.has_edge(road[0], road[1]):
-                test_G.remove_edge(road[0], road[1])
-        
-        if validate_package_delivery(test_G, packages):
-            st.session_state.closed_roads = chosen_closures
-            return chosen_closures
+        for chosen_closures in safe_closure_options:
+            # Validate with packages
+            test_G = G.copy()
+            for road in chosen_closures:
+                if test_G.has_edge(road[0], road[1]):
+                    test_G.remove_edge(road[0], road[1])
+            
+            if validate_package_delivery(test_G, packages):
+                st.session_state.closed_roads = chosen_closures
+                return chosen_closures
     
     # If predefined closures don't work or we have a different number of closures,
     # try to find valid road closures through trial and error
@@ -133,8 +136,9 @@ def generate_road_closures(num_closures=1, max_attempts=100):
                 return candidate_closures
     
     # Fall back to a single safe closure if everything else fails
-    st.session_state.closed_roads = [("Warehouse", "Shop")]
-    return [("Warehouse", "Shop")]
+    fallback_closures = [("Warehouse", "Shop")]
+    st.session_state.closed_roads = fallback_closures
+    return fallback_closures
 
 def add_random_closure():
     """Add a random road closure during gameplay, ensuring connectivity and constraints"""

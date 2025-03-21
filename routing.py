@@ -659,7 +659,8 @@ def solve_tsp(start_location, locations):
         route_locations = set(route_path)
         
         if not location_set.issubset(route_locations):
-            st.warning("Optimal route calculation did not include all locations. Using fallback route.")
+            missing_locations = [loc for loc in locations if loc not in route_path]
+            st.warning(f"Optimal route calculation did not include all locations ({', '.join(missing_locations)}). Using fallback route.")
             action_route, route_path, total_distance = fallback_route(start_location, locations, packages)
         
         # 2. Check for any closed roads in the path
@@ -708,6 +709,48 @@ def solve_tsp(start_location, locations):
         
         if invalid_path:
             action_route, route_path, total_distance = fallback_route(start_location, locations, packages)
+        
+        # Critical: Ensure the route includes ALL locations after all validations
+        if route_path and set(route_path) != set(locations):
+            missing = [loc for loc in locations if loc not in route_path]
+            
+            # Add missing locations while respecting constraints
+            temp_path = route_path.copy()
+            for loc in missing:
+                # Find appropriate position based on constraints
+                if loc == "Shop" and "Warehouse" in temp_path:
+                    # Insert Shop after Warehouse
+                    warehouse_idx = temp_path.index("Warehouse")
+                    temp_path.insert(warehouse_idx + 1, loc)
+                elif loc == "Home" and "Distribution Center" in temp_path:
+                    # Insert Home after Distribution Center
+                    dc_idx = temp_path.index("Distribution Center")
+                    temp_path.insert(dc_idx + 1, loc)
+                else:
+                    # Add at the end
+                    temp_path.append(loc)
+            
+            # If the new path satisfies constraints, use it
+            if check_constraints(temp_path):
+                route_path = temp_path
+                
+                # Rebuild action_route based on updated route_path
+                updated_action_route = []
+                for loc in route_path:
+                    # Check if this location already has actions in the original action_route
+                    loc_actions = [a for a in action_route if a["location"] == loc]
+                    if loc_actions:
+                        for action in loc_actions:
+                            updated_action_route.append(action)
+                    else:
+                        updated_action_route.append({"location": loc, "action": "visit", "package_id": None})
+                
+                action_route = updated_action_route
+                
+                # Recalculate total distance
+                _, recalculated_distance = calculate_route_distance(route_path)
+                if recalculated_distance != float('inf') and recalculated_distance >= 50:
+                    total_distance = recalculated_distance
             
         # Final validation of the fallback route
         if len(route_path) < len(locations) or total_distance < 50 or total_distance == float('inf'):

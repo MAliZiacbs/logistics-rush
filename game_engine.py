@@ -298,6 +298,38 @@ def end_game():
             # Use a reasonable fallback - 60% of player's distance as a heuristic
             optimal_distance = max(player_distance * 0.6, 100)  # At least 100cm
 
+    # Ensure the optimal path includes all locations and handles all packages
+    if hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path:
+        # Check if all locations are in the optimal path
+        missing_locations = [loc for loc in LOCATIONS.keys() if loc not in st.session_state.optimal_path]
+        if missing_locations:
+            # Add missing locations in a sensible order
+            current_path = st.session_state.optimal_path.copy()
+            
+            # Ensure Warehouse → Shop and Distribution Center → Home constraints are met
+            if "Warehouse" in current_path and "Shop" in missing_locations:
+                # Insert Shop after Warehouse
+                warehouse_idx = current_path.index("Warehouse")
+                current_path.insert(warehouse_idx + 1, "Shop")
+                missing_locations.remove("Shop")
+                
+            if "Distribution Center" in current_path and "Home" in missing_locations:
+                # Insert Home after Distribution Center
+                dc_idx = current_path.index("Distribution Center")
+                current_path.insert(dc_idx + 1, "Home")
+                missing_locations.remove("Home")
+                
+            # Add any remaining missing locations at the end
+            current_path.extend(missing_locations)
+            
+            # Update the optimal path
+            st.session_state.optimal_path = current_path
+            
+            # Recalculate optimal distance with the complete path
+            _, recalculated_distance = calculate_route_distance(st.session_state.optimal_path)
+            if recalculated_distance != float('inf') and recalculated_distance >= 50:
+                optimal_distance = recalculated_distance
+
     # Compare player's route to optimal route
     # If player's distance is better (shorter) than the "optimal", update the optimal
     player_found_better_route = False
@@ -377,6 +409,8 @@ def end_game():
     if player_found_better_route:
         # Use player's route as the optimal path
         optimal_path = st.session_state.current_route.copy()
+    elif hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path:
+        optimal_path = st.session_state.optimal_path
     elif hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
         # Extract locations from the action route in the correct order
         optimal_path = []
@@ -390,10 +424,10 @@ def end_game():
                 seen_locations.add(location)
     else:
         # Fallback if optimal_route is not available
-        optimal_path = st.session_state.optimal_path if hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path else []
+        optimal_path = []
     
     # Validate that the optimal path doesn't use closed roads
-    if hasattr(st.session_state, 'closed_roads') and st.session_state.closed_roads:
+    if hasattr(st.session_state, 'closed_roads') and st.session_state.closed_roads and optimal_path:
         from feature_road_closures import is_road_closed
         from routing import calculate_segment_path
         
@@ -421,6 +455,13 @@ def end_game():
         # Use the validated path
         optimal_path = valid_optimal_path
     
+    # Final check: Ensure the optimal path contains all locations
+    if optimal_path:
+        missing_locations = [loc for loc in LOCATIONS.keys() if loc not in optimal_path]
+        if missing_locations:
+            for loc in missing_locations:
+                optimal_path.append(loc)
+    
     # Store the consistent path for both visualization and text description
     st.session_state.completed_routes = {
         "player": st.session_state.current_route.copy(),
@@ -436,7 +477,18 @@ def end_game():
             player_action_route.append({"location": loc, "action": "visit", "package_id": None})
         st.session_state.completed_optimal_route = player_action_route
     else:
-        st.session_state.completed_optimal_route = st.session_state.optimal_route if hasattr(st.session_state, 'optimal_route') else []
+        # Use the stored optimal route if available, otherwise create an action route for the optimal path
+        if hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
+            # Check if the optimal route includes all locations
+            optimal_route_locations = set(action["location"] for action in st.session_state.optimal_route)
+            if set(LOCATIONS.keys()).issubset(optimal_route_locations):
+                st.session_state.completed_optimal_route = st.session_state.optimal_route
+            else:
+                # Create action route from the optimal path
+                st.session_state.completed_optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in optimal_path]
+        else:
+            # Create action route from the optimal path
+            st.session_state.completed_optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in optimal_path]
     
     if st.session_state.current_player:
         result_data = {

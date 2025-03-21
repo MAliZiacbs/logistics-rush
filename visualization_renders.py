@@ -137,12 +137,14 @@ def render_game_results():
     
     st.markdown("### Challenge Results")
     st.metric("Optimal Score", f"{results['optimal_score']}")
+    
     # Show difficulty level based on number of road closures
     if 'difficulty' in results:
         num_closures = results['difficulty']
         displayed_difficulty = st.session_state.get('displayed_difficulty', 
                              "Easy" if num_closures == 1 else "Medium" if num_closures == 2 else "Hard")
         st.markdown(f"**Difficulty Level:** {displayed_difficulty} ({num_closures} road closure{'s' if num_closures > 1 else ''})")
+    
     # Show improvement percentage differently if player found the optimal route
     improvement = results['improvement_percent']
     if results.get('found_better_route', False) or improvement <= 0:
@@ -219,6 +221,11 @@ def render_game_results():
         if "completed_routes" in st.session_state and "optimal" in st.session_state.completed_routes:
             optimal_path = st.session_state.completed_routes["optimal"]
             
+            # Verify optimal route includes all locations
+            missing_locs = [loc for loc in LOCATIONS.keys() if loc not in optimal_path]
+            if missing_locs:
+                st.warning(f"Optimal route is missing locations: {', '.join(missing_locs)}")
+            
             if optimal_path and len(optimal_path) > 1:
                 # Get optimal route operations using the new module
                 optimal_package_ops = route_analysis.get_route_operations(is_player_route=False)
@@ -240,7 +247,7 @@ def render_game_results():
                         st.markdown(f"**Total Distance:** {total_distance:.1f} cm")
                 else:
                     st.code(route_text)
-                    # Calculate and display the total distance
+                    # Calculate and display the total distance - recalculate to ensure accuracy
                     if len(optimal_path) > 1:
                         total_distance = 0
                         for i in range(len(optimal_path) - 1):
@@ -248,6 +255,10 @@ def render_game_results():
                             if segment_distance != float('inf'):
                                 total_distance += segment_distance
                         st.markdown(f"**Total Distance:** {total_distance:.1f} cm")
+                        
+                        # Compare with stored distance and alert if different
+                        if abs(total_distance - results['optimal_distance']) > 10:
+                            st.warning(f"Calculated distance ({total_distance:.1f} cm) differs from stored optimal distance ({results['optimal_distance']:.1f} cm). Using the calculated value for accuracy.")
             else:
                 st.markdown("*No optimal route available due to road closure constraints.*")
         else:

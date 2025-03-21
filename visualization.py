@@ -146,6 +146,13 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
 
     # Optimal Route: Fixed to draw showing proper detours around closed roads with better offsets
     if (optimal_route and len(optimal_route) > 1 and (route_type == "both" or route_type == "optimal")):
+        # Verify the optimal route includes all required locations
+        missing_locations = [loc for loc in LOCATIONS.keys() if loc not in optimal_route]
+        if missing_locations:
+            # If we're in results view, show a warning
+            if not show_roads:
+                st.warning(f"Optimal route visualization is missing required locations: {', '.join(missing_locations)}")
+        
         # Process the optimal route to respect road closures
         processed_optimal_route = []
         for i in range(len(optimal_route) - 1):
@@ -184,6 +191,13 @@ def visualize_map(player_route=None, optimal_route=None, constraints=None, show_
         
         # Use the processed route for visualization
         display_route = processed_optimal_route if processed_optimal_route else optimal_route
+        
+        # Check if display route includes all locations
+        display_locations = set(display_route)
+        all_locations = set(LOCATIONS.keys())
+        if not all_locations.issubset(display_locations) and not show_roads:
+            missing = all_locations - display_locations
+            st.warning(f"The optimal route visualization is missing locations: {', '.join(missing)}")
         
         # Track path segments for offset calculation
         path_counts = {}

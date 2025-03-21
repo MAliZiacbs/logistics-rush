@@ -182,6 +182,25 @@ def get_route_operations(is_player_route=True):
     # For optimal route or if no recorded operations exist
     if "completed_routes" in st.session_state:
         route = st.session_state.completed_routes.get("player" if is_player_route else "optimal", [])
+        
+        # If we're getting the optimal route and we have completed_optimal_route actions, use those
+        if not is_player_route and hasattr(st.session_state, 'completed_optimal_route') and st.session_state.completed_optimal_route:
+            # Extract operations from the completed optimal route
+            operations = []
+            for action in st.session_state.completed_optimal_route:
+                if action["action"] in ["pickup", "deliver"] and action["package_id"] is not None:
+                    operations.append({
+                        "location": action["location"],
+                        "action": action["action"],
+                        "package_id": action["package_id"],
+                        "timestamp": 0  # Dummy timestamp for ordering
+                    })
+            
+            # If we found operations, return them
+            if operations:
+                return operations
+        
+        # Otherwise reconstruct operations from route and packages
         packages = st.session_state.packages + st.session_state.delivered_packages if hasattr(st.session_state, 'delivered_packages') else st.session_state.packages
         
         if route:
