@@ -11,16 +11,16 @@ def render_action_controls():
     st.markdown("### Check In")
     col1, col2 = st.columns(2)
     with col1:
-        for loc in ["Factory", "Shop"]:
-            disabled = (loc == "Shop" and "Factory" not in st.session_state.current_route)
+        for loc in ["Warehouse", "Shop"]:
+            disabled = (loc == "Shop" and "Warehouse" not in st.session_state.current_route)
             btn_type = "primary" if st.session_state.current_route and suggest_next_location(st.session_state.current_route[-1], st.session_state.current_route, st.session_state.packages)[0] == loc else "secondary"
             if st.button(f"{LOCATIONS[loc]['emoji']} {loc}", key=f"btn_{loc}", disabled=disabled, type=btn_type, use_container_width=True):
                 if process_location_checkin(loc):
                     # Force a rerun to update the map with the new state
                     st.rerun()
     with col2:
-        for loc in ["DHL Hub", "Residence"]:
-            disabled = (loc == "Residence" and "DHL Hub" not in st.session_state.current_route)
+        for loc in ["Distribution Center", "Home"]:
+            disabled = (loc == "Home" and "Distribution Center" not in st.session_state.current_route)
             btn_type = "primary" if st.session_state.current_route and suggest_next_location(st.session_state.current_route[-1], st.session_state.current_route, st.session_state.packages)[0] == loc else "secondary"
             if st.button(f"{LOCATIONS[loc]['emoji']} {loc}", key=f"btn_{loc}", disabled=disabled, type=btn_type, use_container_width=True):
                 if process_location_checkin(loc):
