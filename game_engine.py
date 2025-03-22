@@ -1,98 +1,26 @@
-import streamlit as st
-import numpy as np
-import time
-import diagnostics  # Added import for diagnostics
+# game_engine.py
 
-from config import LOCATIONS, SCORING_WEIGHTS, check_constraints
-from routing import solve_tsp, get_distance, calculate_route_distance
-from feature_road_closures import generate_road_closures, is_road_closed
-from feature_packages import generate_packages
-from data_management import save_player_data
+import streamlit as st
+import time
+import diagnostics
 import route_analysis
 
-def update_difficulty_display(num_actual_closures):
-    """Update the displayed difficulty based on the actual number of closures"""
-    if num_actual_closures >= 3:
-        st.session_state.displayed_difficulty = "Hard"
-    elif num_actual_closures >= 2:
-        st.session_state.displayed_difficulty = "Medium"
-    elif num_actual_closures >= 1:
-        st.session_state.displayed_difficulty = "Easy"
-    else:
-        st.session_state.displayed_difficulty = "No Closures"
-    
-    # This will be used for display purposes
-    st.session_state.actual_num_closures = num_actual_closures
-
-def validate_optimal_route(route, path, packages):
-    """
-    Validates that the optimal route satisfies all requirements:
-    - Handles all packages
-    - Satisfies all constraints
-    - Forms a valid path with no impossible segments
-    
-    Returns True if valid, False otherwise
-    """
-    if not route or not path:
-        return False
-    
-    # Collect all package IDs that are handled in the route
-    handled_packages = set()
-    carrying = None
-    
-    for action in route:
-        if action["action"] == "pickup":
-            if carrying is not None:
-                return False  # Can't carry more than one package
-            carrying = action["package_id"]
-            handled_packages.add(action["package_id"])
-        elif action["action"] == "deliver":
-            if carrying != action["package_id"]:
-                return False  # Can't deliver what we're not carrying
-            carrying = None
-    
-    # All packages should be handled
-    if len(handled_packages) != len(packages):
-        return False
-    
-    # Check if path satisfies sequence constraints
-    if "Factory" in path and "Shop" in path:
-        f_idx = path.index("Factory")
-        s_idx = path.index("Shop")
-        if f_idx > s_idx:
-            return False  # Factory must come before Shop
-    
-    if "DHL Hub" in path and "Residence" in path:
-        d_idx = path.index("DHL Hub")
-        r_idx = path.index("Residence")
-        if d_idx > r_idx:
-            return False  # DHL Hub must come before Residence
-    
-    # Check if all path segments are valid (no infinite distances)
-    for i in range(len(path) - 1):
-        _, distance = calculate_segment_path(path[i], path[i+1])
-        if distance == float('inf'):
-            return False
-    
-    # If we passed all checks, the route is valid
-    return True
+from config import LOCATIONS, check_constraints
+from routing import solve_tsp_improved, calculate_route_distance, is_valid_route
+from feature_road_closures import generate_road_closures
+from feature_packages import generate_packages
+from data_management import save_player_data
 
 def start_new_game():
-    """Start a new game with all features combined - with improved error handling"""
+    """Start a new game session."""
     st.session_state.game_active = True
     st.session_state.start_time = time.time()
-    
-    # Initialize diagnostics for the new game
     diagnostics.init_diagnostics()
-    
     st.session_state.current_package = None
     st.session_state.delivered_packages = []
-    st.session_state.current_route = ["Warehouse"]  # Start at Warehouse
+    st.session_state.current_route = ["Warehouse"]  # Starting point
     st.session_state.optimal_route = None
     st.session_state.optimal_path = None
-    
-    locations_to_visit = list(LOCATIONS.keys())
-    start_location = "Warehouse"
 
     st.session_state.constraints = {
         "Warehouse": "Must visit before Shop",
@@ -100,510 +28,73 @@ def start_new_game():
         "Distribution Center": "Must visit before Home",
         "Home": "Must visit after Distribution Center"
     }
-    
-    # First generate packages
+
+    # Generate packages
     st.session_state.packages = generate_packages(num_packages=3)
     st.session_state.total_packages = len(st.session_state.packages)
-    
-    # Get the number of road closures based on difficulty (default to 1 if not set)
-    num_closures = st.session_state.get('num_road_closures', 1)
-    
-    try:
-        # Generate road closures based on selected difficulty with better validation
-        st.session_state.closed_roads = generate_road_closures(num_closures=num_closures)
-        
-        # Update difficulty display based on actual number of closures generated
-        update_difficulty_display(len(st.session_state.closed_roads))
 
-        # Display accurate difficulty message
-        if len(st.session_state.closed_roads) != num_closures:
-            actual_difficulty = st.session_state.displayed_difficulty
-            st.info(f"Note: {actual_difficulty} mode with {len(st.session_state.closed_roads)} road closure(s) was applied to ensure a playable game.")
-        else:
-            if num_closures == 1:
-                st.info(f"Easy mode: 1 road closure generated.")
-            elif num_closures == 2:
-                st.info(f"Medium mode: {len(st.session_state.closed_roads)} road closures generated.")
-            else:
-                st.info(f"Hard mode: {len(st.session_state.closed_roads)} road closures generated.")
-        
-        # If no closures were possible, let the player know
-        if len(st.session_state.closed_roads) == 0:
-            st.warning("No road closures were possible while ensuring all packages could be delivered.")
+    # Generate road closures based on selected difficulty
+    num_closures = st.session_state.get('num_road_closures', 1)
+    try:
+        closures = generate_road_closures(num_closures=num_closures)
+        st.session_state.closed_roads = closures
+        diagnostics.log_event("Game Start", f"Applied road closures: {closures}")
     except Exception as e:
-        # Fallback to a safe configuration if road closure generation fails
-        st.warning(f"Using default road closures to ensure a playable game. Error: {e}")
-        st.session_state.closed_roads = [("Warehouse", "Shop")]  # Safe default
-        update_difficulty_display(1)  # Set to Easy mode
-        
-        # Log the error in diagnostics
+        st.warning(f"Using default road closures due to error: {e}")
+        st.session_state.closed_roads = [("Warehouse", "Shop")]
         diagnostics.log_error("Road Closure Generation", str(e))
 
+    # Calculate optimal route using improved TSP solver
+    start_location = "Warehouse"
+    locations = list(LOCATIONS.keys())
     try:
-        # Try to find an optimal route with the improved algorithm
-        optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
-        
-        # Verify the optimal route is valid
-        from routing import validate_optimal_route
-        valid_optimal = validate_optimal_route(optimal_route, optimal_path, st.session_state.packages)
-        
-        if not valid_optimal:
-            st.warning("Optimal route calculation encountered challenges. Using best available solution.")
+        optimal_route, optimal_path, optimal_distance = solve_tsp_improved(start_location, locations, st.session_state.packages)
+        if not is_valid_route(optimal_route):
             diagnostics.log_error("Optimal Route Validation", "Route validation failed, using fallback")
-            
-            # If validation fails, try the fallback route
-            from routing import fallback_route
-            optimal_route, optimal_path, optimal_distance = fallback_route(start_location, locations_to_visit, st.session_state.packages)
-            
-        # Sanity check for distance
-        if optimal_distance < 50 or optimal_distance == float('inf'):
-            st.warning("Optimal route has unrealistic distance. Using validated distance calculation.")
-            diagnostics.log_error("Optimal Route Distance", f"Unrealistic distance: {optimal_distance}")
-            
-            # Recalculate distance properly
-            from routing import calculate_route_distance
-            _, recalculated_distance = calculate_route_distance(optimal_path)
-            
-            if recalculated_distance >= 50 and recalculated_distance != float('inf'):
-                optimal_distance = recalculated_distance
-            else:
-                # Use minimum distances from config as a fallback
-                from config import DISTANCES
-                min_segment_distance = min([d for d in DISTANCES.values() if d > 0])
-                optimal_distance = min_segment_distance * (len(locations_to_visit) - 1)
-                
+            from routing import nearest_neighbor_route
+            optimal_route = nearest_neighbor_route(start_location, locations)
+            _, optimal_distance = calculate_route_distance(optimal_route)
+        st.session_state.optimal_route = optimal_route
+        st.session_state.optimal_path = optimal_route
+        st.session_state.optimal_distance = optimal_distance if optimal_distance != float('inf') else 0
+        diagnostics.log_optimal_route_data(optimal_route, optimal_route, optimal_distance)
     except Exception as e:
         st.error(f"Route calculation error: {e}")
         diagnostics.log_error("Route Calculation Error", str(e))
-        
-        # Create a minimal valid route as fallback
-        optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in locations_to_visit]
-        optimal_path = locations_to_visit
-        
-        # Use reasonable distance as fallback
-        from config import DISTANCES
-        fallback_distance = sum(DISTANCES.get((locations_to_visit[i], locations_to_visit[i+1]), 
-                                DISTANCES.get((locations_to_visit[i+1], locations_to_visit[i]), 300)) 
-                                for i in range(len(locations_to_visit)-1))
-        optimal_distance = max(fallback_distance, 100)  # Ensure at least 100cm
-    
-    st.session_state.optimal_route = optimal_route
-    st.session_state.optimal_path = optimal_path if optimal_path else ["Warehouse"]
-    st.session_state.optimal_distance = optimal_distance if optimal_distance != float('inf') else 0
-    
-    # Log diagnostics for the optimal route
-    diagnostics.log_optimal_route_data(optimal_route, optimal_path, optimal_distance)
+        fallback_route = list(LOCATIONS.keys())
+        st.session_state.optimal_route = fallback_route
+        st.session_state.optimal_path = fallback_route
+        st.session_state.optimal_distance = 1000
+
+    route_analysis.init_route_tracking()
 
 def process_location_checkin(location):
-    """Process a player checking in at a location"""
+    """Process player check-in at a given location."""
     if not st.session_state.game_active:
         st.warning("Please start a new game first!")
         return None
-    
-    # Log route change in diagnostics
+
     diagnostics.log_route_change(location, True)
-        
-    if len(st.session_state.current_route) > 0:
+    if st.session_state.current_route:
         current_location = st.session_state.current_route[-1]
         if is_road_closed(current_location, location):
-            st.error(f"❌ Road from {current_location} to {location} is closed! Find another route.")
+            st.error(f"❌ Road from {current_location} to {location} is closed!")
             diagnostics.log_route_change(location, False)
             return None
-
     temp_route = st.session_state.current_route + [location]
     if not check_constraints(temp_route):
-        if location == "Shop" and "Warehouse" not in st.session_state.current_route:
-            st.error("You must visit Warehouse before Shop!")
-            diagnostics.log_error("Constraint Violation", "Attempted to visit Shop before Warehouse")
-        elif location == "Home" and "Distribution Center" not in st.session_state.current_route:
-            st.error("You must visit Distribution Center before Home!")
-            diagnostics.log_error("Constraint Violation", "Attempted to visit Home before Distribution Center")
+        st.error("Route constraints violated!")
         diagnostics.log_route_change(location, False)
         return None
-    
-    # First update the route - this is critical for visualization
+
     st.session_state.current_route.append(location)
-            
+    # Check for delivery
     if st.session_state.current_package and st.session_state.current_package["delivery"] == location:
-        package_id = st.session_state.current_package["id"]
+        pkg_id = st.session_state.current_package["id"]
         st.session_state.current_package["status"] = "delivered"
         st.session_state.delivered_packages.append(st.session_state.current_package)
-        
-        # Record this delivery operation using the route_analysis module
-        route_analysis.record_delivery(location, package_id)
-        
-        # Log package delivery in diagnostics
-        diagnostics.log_package_operation("delivery", location, package_id)
-        
+        diagnostics.log_package_operation("delivery", location, pkg_id)
         st.session_state.current_package = None
-        st.success(f"📦 Package delivered successfully to {location}!")
-        
-    available_pickups = [p for p in st.session_state.packages 
-                         if p["pickup"] == location and p["status"] == "waiting"]
-    if available_pickups and not st.session_state.current_package:
-        st.info(f"📦 There are {len(available_pickups)} packages available for pickup at {location}!")
-    
-    main_locations = list(LOCATIONS.keys())
-    all_locations_visited = all(loc in st.session_state.current_route for loc in main_locations)
-    all_packages_delivered = len(st.session_state.delivered_packages) == st.session_state.total_packages
-    
-    if all_locations_visited and all_packages_delivered:
-        if st.session_state.current_route[0] != st.session_state.current_route[-1]:
-            if not is_road_closed(st.session_state.current_route[-1], st.session_state.current_route[0]):
-                st.session_state.current_route.append(st.session_state.current_route[0])
-                diagnostics.log_event("Complete Route", "Added return to starting location")
-        return end_game()
-            
-    return True  # Return True to indicate successful check-in
-
-def pickup_package(package):
-    """Pick up a package at the current location"""
-    if not st.session_state.game_active or not package:
-        return
-    package["status"] = "picked_up"
-    st.session_state.current_package = package
-    
-    # Record this pickup operation using the route_analysis module
-    current_location = st.session_state.current_route[-1] if st.session_state.current_route else None
-    route_analysis.record_pickup(current_location, package["id"])
-    
-    # Log package pickup in diagnostics
-    diagnostics.log_package_operation("pickup", current_location, package["id"])
-    
-    st.success(f"Package #{package['id']} picked up! Deliver to {package['delivery']}.")
-
-def get_game_status():
-    """Get current game status including time, progress, etc."""
-    if not st.session_state.game_active:
-        return None
-        
-    game_time = time.time() - st.session_state.start_time
-    loc_visited = len(set(st.session_state.current_route))
-    total_loc = len(LOCATIONS)
-    loc_progress = min(100, int((loc_visited / total_loc) * 100))
-    pkg_progress = min(100, int((len(st.session_state.delivered_packages) / max(1, st.session_state.total_packages)) * 100))
-    combined_progress = (loc_progress + pkg_progress) // 2
-    return {
-        "time": game_time,
-        "location_progress": loc_progress,
-        "package_progress": pkg_progress,
-        "combined_progress": combined_progress,
-        "progress_text": f"Overall Progress: {combined_progress}%"
-    }
-
-def end_game():
-    """End the game and calculate results with improved efficiency calculation and route validation"""
-    if not st.session_state.game_active:
-        return None
-
-    game_time = time.time() - st.session_state.start_time
-
-    # Get the optimal distance using the stored path
-    optimal_distance = getattr(st.session_state, 'optimal_distance', 0)
-    if optimal_distance == 0 and st.session_state.optimal_path:
-        _, optimal_distance = calculate_route_distance(st.session_state.optimal_path)
-        if optimal_distance == float('inf'):
-            optimal_distance = 0  # Fallback if no valid optimal route
-    
-    # Calculate player's route distance
-    player_distance = 0
-    for i in range(len(st.session_state.current_route) - 1):
-        segment_distance = get_distance(st.session_state.current_route[i], st.session_state.current_route[i+1])
-        if segment_distance != float('inf'):
-            player_distance += segment_distance
-
-    # Sanity check for optimal distance - prevent unrealistically low values
-    if optimal_distance < 50 and player_distance > 0:  # 50cm minimum threshold
-        # Recalculate optimal distance using the optimal path
-        if hasattr(st.session_state, 'optimal_path') and len(st.session_state.optimal_path) > 1:
-            _, recalculated_distance = calculate_route_distance(st.session_state.optimal_path)
-            if recalculated_distance != float('inf') and recalculated_distance >= 50:
-                optimal_distance = recalculated_distance
-                diagnostics.log_event("Distance Recalculation", f"Optimal distance adjusted from <50 to {optimal_distance}")
-            else:
-                # Use a reasonable fallback - 60% of player's distance as a heuristic
-                optimal_distance = max(player_distance * 0.6, 100)  # At least 100cm
-                diagnostics.log_event("Distance Fallback", f"Using 60% of player distance: {optimal_distance}")
-        else:
-            # Use a reasonable fallback - 60% of player's distance as a heuristic
-            optimal_distance = max(player_distance * 0.6, 100)  # At least 100cm
-            diagnostics.log_event("Distance Fallback", f"No optimal path, using 60% of player distance: {optimal_distance}")
-
-    # Ensure the optimal path includes all locations and handles all packages
-    if hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path:
-        # Check if all locations are in the optimal path
-        missing_locations = [loc for loc in LOCATIONS.keys() if loc not in st.session_state.optimal_path]
-        if missing_locations:
-            # Add missing locations in a sensible order
-            current_path = st.session_state.optimal_path.copy()
-            
-            # Ensure Warehouse → Shop and Distribution Center → Home constraints are met
-            if "Warehouse" in current_path and "Shop" in missing_locations:
-                # Insert Shop after Warehouse
-                warehouse_idx = current_path.index("Warehouse")
-                current_path.insert(warehouse_idx + 1, "Shop")
-                missing_locations.remove("Shop")
-                diagnostics.log_event("Path Correction", f"Added Shop after Warehouse in optimal path")
-                
-            if "Distribution Center" in current_path and "Home" in missing_locations:
-                # Insert Home after Distribution Center
-                dc_idx = current_path.index("Distribution Center")
-                current_path.insert(dc_idx + 1, "Home")
-                missing_locations.remove("Home")
-                diagnostics.log_event("Path Correction", f"Added Home after Distribution Center in optimal path")
-                
-            # Add any remaining missing locations at the end
-            current_path.extend(missing_locations)
-            if missing_locations:
-                diagnostics.log_event("Path Correction", f"Added remaining locations to optimal path: {missing_locations}")
-            
-            # Update the optimal path
-            st.session_state.optimal_path = current_path
-            
-            # Recalculate optimal distance with the complete path
-            _, recalculated_distance = calculate_route_distance(st.session_state.optimal_path)
-            if recalculated_distance != float('inf') and recalculated_distance >= 50:
-                optimal_distance = recalculated_distance
-                diagnostics.log_event("Distance Recalculation", f"Optimal distance adjusted to {optimal_distance} after adding missing locations")
-
-    # Compare player's route to optimal route
-    # If player's distance is better (shorter) than the "optimal", update the optimal
-    player_found_better_route = False
-    if player_distance < optimal_distance and player_distance > 0:
-        # Player found a better route than the calculated "optimal"
-        st.success("You found a more efficient route than the algorithm! 🎉")
-        diagnostics.log_event("Better Route", f"Player found a better route: {player_distance} cm vs optimal {optimal_distance} cm")
-        
-        # Update the optimal path and distance for visualization
-        st.session_state.optimal_path = st.session_state.current_route.copy()
-        st.session_state.optimal_distance = player_distance
-        optimal_distance = player_distance
-        player_found_better_route = True
-        efficiency = 100  # Perfect efficiency
-    else:
-        # Calculate efficiency using real distances
-        efficiency = min(100, int((optimal_distance / max(player_distance, 1)) * 100)) if player_distance > 0 and optimal_distance > 0 else 0
-
-    # Adjust time expectations based on real distances
-    # Average human walking speed is around 1.4 meters per second (140 cm/s)
-    # Allow about 10 seconds per location for making decisions
-    # 3 packages with about 15 seconds for each pickup/delivery operation
-    # Total route in cm / 140 cm/s + 10s * number of locations + 15s * 6 operations
-    average_speed_cm_per_sec = 140
-    location_decision_time = 10  # seconds
-    package_operation_time = 15  # seconds
-    
-    expected_travel_time = player_distance / average_speed_cm_per_sec
-    expected_decision_time = len(set(st.session_state.current_route)) * location_decision_time
-    expected_package_time = 6 * package_operation_time  # 3 packages * 2 operations (pickup/delivery)
-    
-    expected_total_time = expected_travel_time + expected_decision_time + expected_package_time
-    
-    # Calculate time factor based on real distance expectations
-    time_factor = max(0, 100 - ((game_time / expected_total_time) * 50))  # 50% penalty for taking 2x expected time
-    
-    weights = SCORING_WEIGHTS["Logistics Challenge"]
-    constraints_followed = check_constraints(st.session_state.current_route)
-    constraint_factor = 100 if constraints_followed else 0
-    delivery_percent = min(100, int((len(st.session_state.delivered_packages) / max(1, st.session_state.total_packages)) * 100))
-    
-    # Calculate score components with possibly improved efficiency
-    score_components = {
-        "efficiency": efficiency * weights["efficiency"],
-        "delivery": delivery_percent * weights["delivery"],
-        "constraints": constraint_factor * weights["constraints"],
-        "time": time_factor * weights["time"]
-    }
-    player_score = int(sum(score_components.values()))
-    player_score = max(0, min(100, player_score))
-
-    # Calculate optimal score with realistic time expectations
-    optimal_travel_time = optimal_distance / average_speed_cm_per_sec
-    optimal_total_time = optimal_travel_time + expected_decision_time + expected_package_time
-    optimal_time_factor = max(0, 100 - ((optimal_total_time / expected_total_time) * 50))
-    
-    optimal_score_components = {
-        "efficiency": 100 * weights["efficiency"],
-        "delivery": 100 * weights["delivery"],
-        "constraints": 100 * weights["constraints"],
-        "time": optimal_time_factor * weights["time"]
-    }
-    optimal_score = int(sum(optimal_score_components.values()))
-    optimal_score = max(0, min(100, optimal_score))
-    
-    # If player found a better route, their score should be the new optimal
-    if player_found_better_route:
-        optimal_score = player_score
-    
-    # Calculate improvement percentage more meaningfully
-    if player_score > 0:
-        if player_found_better_route or player_score >= optimal_score:
-            improvement_percent = 0.0  # No improvement needed
-        else:
-            improvement_percent = ((optimal_score - player_score) / player_score * 100)
-
-    # Ensure optimal_path is consistent between visualization and text description
-    if player_found_better_route:
-        # Use player's route as the optimal path
-        optimal_path = st.session_state.current_route.copy()
-    elif hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path:
-        optimal_path = st.session_state.optimal_path
-    elif hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
-        # Extract locations from the action route in the correct order
-        optimal_path = []
-        seen_locations = set()
-        
-        for action in st.session_state.optimal_route:
-            location = action["location"]
-            # Only add each location once to avoid duplicates in the path
-            if location not in seen_locations:
-                optimal_path.append(location)
-                seen_locations.add(location)
-    else:
-        # Fallback if optimal_route is not available
-        optimal_path = []
-    
-    # Validate that the optimal path doesn't use closed roads
-    if hasattr(st.session_state, 'closed_roads') and st.session_state.closed_roads and optimal_path:
-        from feature_road_closures import is_road_closed
-        from routing import calculate_segment_path
-        
-        # Process the optimal route to ensure it respects road closures
-        valid_optimal_path = []
-        for i in range(len(optimal_path)):
-            if i == 0:
-                valid_optimal_path.append(optimal_path[i])
-                continue
-                
-            prev_loc = optimal_path[i-1]
-            curr_loc = optimal_path[i]
-            
-            # Check if this segment uses a closed road
-            if is_road_closed(prev_loc, curr_loc):
-                # Find a detour
-                segment_path, _ = calculate_segment_path(prev_loc, curr_loc)
-                if segment_path and len(segment_path) > 2:
-                    # Add intermediate locations in the detour
-                    for loc in segment_path[1:-1]:
-                        valid_optimal_path.append(loc)
-                    diagnostics.log_event("Optimal Path Correction", f"Added detour for closed road: {prev_loc} → {curr_loc}")
-            
-            valid_optimal_path.append(curr_loc)
-        
-        # Use the validated path
-        optimal_path = valid_optimal_path
-    
-    # Final check: Ensure the optimal path contains all locations
-    if optimal_path:
-        missing_locations = [loc for loc in LOCATIONS.keys() if loc not in optimal_path]
-        if missing_locations:
-            for loc in missing_locations:
-                optimal_path.append(loc)
-            diagnostics.log_event("Optimal Path Completion", f"Added missing locations to final optimal path: {missing_locations}")
-    
-    # Store the consistent path for both visualization and text description
-    st.session_state.completed_routes = {
-        "player": st.session_state.current_route.copy(),
-        "optimal": optimal_path
-    }
-
-    # Store optimal_route for package operations in text description
-    if player_found_better_route:
-        # Convert player's route to action route for package operations
-        # This is a simplified representation of the player's actual path
-        player_action_route = []
-        for i, loc in enumerate(st.session_state.current_route):
-            player_action_route.append({"location": loc, "action": "visit", "package_id": None})
-        st.session_state.completed_optimal_route = player_action_route
-    else:
-        # Use the stored optimal route if available, otherwise create an action route for the optimal path
-        if hasattr(st.session_state, 'optimal_route') and st.session_state.optimal_route:
-            # Check if the optimal route includes all locations
-            optimal_route_locations = set(action["location"] for action in st.session_state.optimal_route)
-            if set(LOCATIONS.keys()).issubset(optimal_route_locations):
-                st.session_state.completed_optimal_route = st.session_state.optimal_route
-            else:
-                # Create action route from the optimal path
-                st.session_state.completed_optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in optimal_path]
-        else:
-            # Create action route from the optimal path
-            st.session_state.completed_optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in optimal_path]
-    
-    if st.session_state.current_player:
-        result_data = {
-            "time": game_time,
-            "efficiency": efficiency,
-            "delivery": delivery_percent,
-            "constraints": constraint_factor,
-            "score": player_score,
-            "route": st.session_state.current_route.copy(),
-            "found_better_route": player_found_better_route,
-            "num_road_closures": len(st.session_state.closed_roads),
-            "player_distance_cm": player_distance,  # Store distance in cm
-            "optimal_distance_cm": optimal_distance  # Store distance in cm
-        }
-        save_player_data(result_data)
-    
-    # Finalize the route data for analysis
-    route_analysis.finalize_route_data()
-    
-    st.session_state.game_active = False
-
-    results = {
-        "time": game_time,
-        "efficiency": efficiency,
-        "score": player_score,
-        "optimal_distance": optimal_distance,
-        "player_distance": player_distance,
-        "score_components": score_components,
-        "delivery_percent": delivery_percent,
-        "constraints_followed": constraints_followed,
-        "optimal_score": optimal_score,
-        "improvement_percent": improvement_percent,
-        "found_better_route": player_found_better_route,
-        "difficulty": len(st.session_state.closed_roads),
-        "expected_time": expected_total_time,  # Add expected time for UI
-        "distance_units": "cm"  # Add distance units
-    }
-    st.session_state.game_results = results
-    
-    # Finalize diagnostics
-    diagnostics.finalize_game_diagnostics()
-    
-    return results
-
-def get_completion_summary():
-    """Get a summary of completion status for all game aspects"""
-    if not st.session_state.game_active:
-        return None
-        
-    main_locations = list(LOCATIONS.keys())
-    visited_locations = [loc for loc in main_locations if loc in st.session_state.current_route]
-    remaining_locations = [loc for loc in main_locations if loc not in st.session_state.current_route]
-    delivered_packages = len(st.session_state.delivered_packages)
-    total_packages = st.session_state.total_packages
-    remaining_packages = total_packages - delivered_packages
-    constraints_followed = check_constraints(st.session_state.current_route)
-    constraint_issues = []
-
-    if not constraints_followed:
-        if "Factory" in st.session_state.current_route and "Shop" in st.session_state.current_route:
-            f_idx = st.session_state.current_route.index("Factory")
-            s_idx = st.session_state.current_route.index("Shop")
-            if f_idx > s_idx:
-                constraint_issues.append("Shop was visited before Factory")
-        if "DHL Hub" in st.session_state.current_route and "Residence" in st.session_state.current_route:
-            d_idx = st.session_state.current_route.index("DHL Hub")
-            r_idx = st.session_state.current_route.index("Residence")
-            if d_idx > r_idx:
-                constraint_issues.append("Residence was visited before DHL Hub")
-    return {
-        "visited_locations": visited_locations,
-        "remaining_locations": remaining_locations,
-        "delivered_packages": delivered_packages,
-        "total_packages": total_packages,
-        "remaining_packages": remaining_packages,
-        "constraints_followed": constraints_followed,
-        "constraint_issues": constraint_issues,
-        "num_road_closures": len(st.session_state.closed_roads)
-    }
+        st.success(f"Package #{pkg_id} delivered at {location}!")
+    route_analysis.record_delivery(location, st.session_state.current_package["id"] if st.session_state.current_package else None)
+    return True
