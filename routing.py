@@ -925,7 +925,11 @@ def solve_tsp(start_location, locations):
                 action_route.append({"location": "Home", "action": "deliver", "package_id": dc_to_home["id"]})
             
             # Add any remaining packages with pragmatic pickup/delivery
-            remaining_packages = [p for p in packages if p not in [warehouse_to_shop, dc_to_home] if warehouse_to_shop and dc_to_home else packages]
+            # The correct way to write this line would be:
+        if warehouse_to_shop and dc_to_home:
+            remaining_packages = [p for p in packages if p not in [warehouse_to_shop, dc_to_home]]
+        else:
+            remaining_packages = packages.copy()
             for pkg in remaining_packages:
                 action_route.append({"location": pkg["pickup"], "action": "pickup", "package_id": pkg["id"]})
                 action_route.append({"location": pkg["delivery"], "action": "deliver", "package_id": pkg["id"]})
