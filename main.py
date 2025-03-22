@@ -4,6 +4,9 @@ import time
 import datetime
 import os
 import json
+import networkx as nx
+import matplotlib.pyplot as plt
+from io import StringIO
 
 # Import our new modules
 from config import LOCATIONS, ROAD_SEGMENTS, DISTANCES, STYLES
@@ -41,13 +44,203 @@ if 'current_player' not in st.session_state:
     st.session_state.current_player = None
 if 'leaderboard' not in st.session_state:
     st.session_state.leaderboard = []
+if 'diagnostics_history' not in st.session_state:
+    st.session_state.diagnostics_history = []
+
+def draw_graph(graph, closed_roads=None):
+    """Draw a NetworkX graph using matplotlib"""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Get node positions from LOCATIONS
+    pos = {loc: (LOCATIONS[loc]["position"][0]/100, LOCATIONS[loc]["position"][1]/100) for loc in LOCATIONS}
+    
+    # Draw nodes
+    nx.draw_networkx_nodes(graph, pos, node_size=700, node_color='lightblue', ax=ax)
+    
+    # Draw edges
+    nx.draw_networkx_edges(graph, pos, width=2, edge_color='gray', ax=ax)
+    
+    # Add node labels
+    nx.draw_networkx_labels(graph, pos, font_size=10, font_weight='bold', ax=ax)
+    
+    # Add edge labels (distances)
+    edge_labels = {}
+    for u, v, data in graph.edges(data=True):
+        edge_labels[(u, v)] = data.get('weight', '')
+    
+    nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels, font_size=8, ax=ax)
+    
+    # Highlight closed roads
+    if closed_roads:
+        closed_edges = [(road[0], road[1]) for road in closed_roads]
+        nx.draw_networkx_edges(graph, pos, edgelist=closed_edges, width=3, edge_color='red', 
+                              style='dashed', ax=ax)
+    
+    plt.title("Logistics Rush Network Graph")
+    plt.axis('off')
+    
+    # Display the plot in Streamlit
+    st.pyplot(fig)
+
+def save_diagnostics(data):
+    """Save diagnostic data to session state history"""
+    if isinstance(data, LogisticsRushGame):
+        # Active game - extract data
+        diag_data = {
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "difficulty": data.difficulty,
+            "closed_roads": [(road[0], road[1]) for road in data.closed_roads],
+            "current_route": data.current_route,
+            "optimal_route": data.optimal_route,
+            "optimal_distance": data.optimal_distance,
+            "packages": [
+                {
+                    "id": p.id,
+                    "pickup": p.pickup,
+                    "delivery": p.delivery,
+                    "status": p.status
+                } for p in data.package_manager.packages
+            ]
+        }
+    else:
+        # Completed game - data is already a dict
+        diag_data = {
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            **data
+        }
+    
+    # Add to history
+    st.session_state.diagnostics_history.append(diag_data)
+
+def add_diagnostics_tab():
+    st.subheader("Game Diagnostics")
+    
+    # Section for current/recent game
+    if st.session_state.game or st.session_state.game_results:
+        data = st.session_state.game_results if st.session_state.game_results else st.session_state.game
+        
+        if data:
+            st.markdown("### Current/Recent Game")
+            
+            # Basic game info
+            game_info_col1, game_info_col2 = st.columns(2)
+            
+            with game_info_col1:
+                if hasattr(data, 'difficulty'):
+                    # For active game
+                    difficulty = "Easy" if data.difficulty == 1 else "Medium" if data.difficulty == 2 else "Hard"
+                    st.metric("Difficulty", difficulty)
+                    
+                    closed_roads_str = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in data.closed_roads])
+                    st.text_area("Road Closures", closed_roads_str, height=100, disabled=True)
+                else:
+                    # For completed game
+                    difficulty = "Easy" if data['difficulty'] == 1 else "Medium" if data['difficulty'] == 2 else "Hard"
+                    st.metric("Difficulty", difficulty)
+                    
+                    closed_roads_str = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in data['closed_roads']])
+                    st.text_area("Road Closures", closed_roads_str, height=100, disabled=True)
+            
+            with game_info_col2:
+                if hasattr(data, 'package_manager'):
+                    # For active game
+                    packages_info = "\n".join([
+                        f"Package #{p.id}: {p.pickup} → {p.delivery} ({p.status})" 
+                        for p in data.package_manager.packages
+                    ])
+                    st.text_area("Packages", packages_info, height=150, disabled=True)
+                elif 'packages' in st.session_state:
+                    # For completed game using session state
+                    packages_info = "\n".join([
+                        f"Package #{p['id']}: {p['pickup']} → {p['delivery']} ({p['status']})" 
+                        for p in st.session_state.packages
+                    ])
+                    st.text_area("Packages", packages_info, height=150, disabled=True)
+            
+            # Route analysis
+            st.markdown("### Route Analysis")
+            
+            route_col1, route_col2 = st.columns(2)
+            
+            with route_col1:
+                st.markdown("**Player Route:**")
+                
+                if hasattr(data, 'current_route'):
+                    # For active game
+                    player_route = data.current_route
+                    if player_route:
+                        st.code(" → ".join(player_route))
+                        
+                        # Calculate distance
+                        total_distance = 0
+                        for i in range(len(player_route) - 1):
+                            _, segment_distance = data.graph.find_shortest_path(player_route[i], player_route[i+1])
+                            total_distance += segment_distance
+                            
+                        st.metric("Current Distance", f"{total_distance:.1f} cm")
+                elif 'player_route' in data:
+                    # For completed game
+                    player_route = data['player_route']
+                    st.code(" → ".join(player_route))
+                    st.metric("Total Distance", f"{data['player_distance']:.1f} cm")
+            
+            with route_col2:
+                st.markdown("**Optimal Route:**")
+                
+                if hasattr(data, 'optimal_route'):
+                    # For active game
+                    optimal_route = data.optimal_route
+                    if optimal_route:
+                        st.code(" → ".join(optimal_route))
+                        st.metric("Optimal Distance", f"{data.optimal_distance:.1f} cm")
+                elif 'optimal_route' in data:
+                    # For completed game
+                    optimal_route = data['optimal_route']
+                    st.code(" → ".join(optimal_route))
+                    st.metric("Optimal Distance", f"{data['optimal_distance']:.1f} cm")
+            
+            # Path finding details
+            st.markdown("### Path Finding Details")
+            
+            # Create a graph visualization
+            if hasattr(data, 'graph'):
+                # For active game
+                graph = data.graph.graph
+                draw_graph(graph, data.closed_roads)
+            elif 'closed_roads' in data:
+                # For completed game, recreate the graph
+                g = LogisticsGraph(LOCATIONS, ROAD_SEGMENTS, DISTANCES)
+                for road in data['closed_roads']:
+                    g.close_road(road[0], road[1])
+                draw_graph(g.graph, data['closed_roads'])
+                
+            # Option to save diagnostic data
+            if st.button("Save Diagnostic Data", type="primary"):
+                save_diagnostics(data)
+                st.success("Diagnostic data saved!")
+    
+    # History section
+    st.markdown("### Diagnostics History")
+    
+    # Display saved diagnostic data
+    if st.session_state.diagnostics_history:
+        for i, diag in enumerate(st.session_state.diagnostics_history):
+            with st.expander(f"Game #{i+1} - {diag.get('timestamp', 'Unknown')}"):
+                st.json(diag)
+    else:
+        st.info("No diagnostic history available yet.")
+    
+    # Clear history button
+    if st.session_state.diagnostics_history and st.button("Clear History", type="secondary"):
+        st.session_state.diagnostics_history = []
+        st.success("Diagnostic history cleared!")
 
 # Main UI
 st.markdown('<h1 class="main-title">🚚 Logistics Rush</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe_allow_html=True)
 
 # Create tabs
-tab1, tab2, tab3 = st.tabs(["Game", "Leaderboard", "Instructions"])
+tab1, tab2, tab3, tab4 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics"])
 
 # Game Tab
 with tab1:
@@ -487,6 +680,10 @@ with tab3:
     
     Try to find a more efficient route than the AI's calculated optimal path to earn a perfect efficiency score!
     """)
+
+# Diagnostics Tab
+with tab4:
+    add_diagnostics_tab()
 
 # Main function
 if __name__ == "__main__":
