@@ -27,6 +27,7 @@ class LogisticsRushGame:
         self.closed_roads = []
         self.optimal_route = None
         self.optimal_distance = 0
+        self.optimal_package_operations = []
     
     def start_game(self):
         """Start a new game with the current difficulty"""
@@ -65,6 +66,11 @@ class LogisticsRushGame:
         if path is None:
             return {"success": False, "message": f"No valid path to {location}"}
             
+        # Extra validation: check each segment of the path
+        for i in range(len(path) - 1):
+            if self.graph.is_road_closed(path[i], path[i+1]):
+                return {"success": False, "message": f"Road between {path[i]} and {path[i+1]} is closed"}
+        
         # Check constraints
         valid, message = self.constraints.validate_move(self.current_route, location)
         if not valid:
@@ -173,7 +179,9 @@ class LogisticsRushGame:
             "found_better_route": better_route,
             "score": score,
             "difficulty": self.difficulty,
-            "closed_roads": self.closed_roads
+            "closed_roads": self.closed_roads,
+            "packages": self.package_manager.get_package_info(),
+            "optimal_package_operations": self.optimal_package_operations
         }
     
     def get_game_status(self):
@@ -220,7 +228,7 @@ class LogisticsRushGame:
             ("Shop", "Distribution Center"),
             ("Distribution Center", "Shop"),
             ("Warehouse", "Home"),
-            ("Home", "Shop")
+            ("Home", "Warehouse")
         ]
         pickup, delivery = random.choice(options)
         self.package_manager.add_package(3, pickup, delivery)
@@ -254,25 +262,30 @@ class LogisticsRushGame:
         return [("Warehouse", "Shop")]
     
     def _calculate_optimal_route(self):
-        """Calculate the optimal route"""
+        """Calculate the optimal route that properly accounts for package deliveries"""
         optimizer = RouteOptimizer(self.graph)
         
         # Get a list of all locations
         locations = list(self.graph.locations.keys())
         
-        # Find the optimal route
-        route, distance = optimizer.find_optimal_route(self.start_location, locations)
+        # Find the optimal route with package operations
+        route, distance, operations = optimizer.find_optimal_route(
+            self.start_location, 
+            locations, 
+            self.package_manager.packages
+        )
         
         # Store the results
         self.optimal_route = route
         self.optimal_distance = distance
+        self.optimal_package_operations = operations
     
     def _check_game_completion(self):
         """Check if the game is complete"""
         # Game is complete when:
         # 1. All locations have been visited
         # 2. All packages have been delivered
-        all_locations_visited = all(loc in self.current_route for loc in self.graph.locations)
+        all_locations_visited = set(self.graph.locations.keys()).issubset(set(self.current_route))
         all_packages_delivered = self.package_manager.all_packages_delivered()
         
         return all_locations_visited and all_packages_delivered

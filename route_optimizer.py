@@ -6,38 +6,133 @@ class RouteOptimizer:
         self.graph = logistics_graph
         self.constraints = ConstraintsManager()
     
-    def find_optimal_route(self, start_location, required_locations):
-        """Find the best route that visits all required locations"""
-        # Start with a basic valid route
-        base_route = self._create_constraint_satisfied_route(start_location, required_locations)
+    def find_optimal_route(self, start_location, required_locations, packages):
+        """Find a realistic optimal route that properly accounts for package deliveries"""
+        # First, let's make sure our starting location is included
+        if start_location not in required_locations:
+            required_locations = [start_location] + [loc for loc in required_locations if loc != start_location]
         
-        # Try to optimize using 2-opt local search
-        improved_route = self._apply_two_opt(base_route)
+        # Create a route that prioritizes package operations
+        route = [start_location]
+        current_location = start_location
+        carrying_package = None
+        package_operations = []
         
-        # Calculate the full path and distance
-        full_path, total_distance = self.graph.find_path_distance(improved_route)
+        # Keep track of which packages are handled
+        handled_packages = set()
         
-        # If the path is invalid, use the base route
-        if full_path is None:
-            full_path, total_distance = self.graph.find_path_distance(base_route)
+        # First pass: handle critical packages that match constraints
+        for package in packages:
+            # Skip if already handled
+            if package.id in handled_packages:
+                continue
+                
+            # Special case: Warehouse → Shop package (constraint)
+            if package.pickup == "Warehouse" and package.delivery == "Shop":
+                # Only add if we can reach both locations
+                path_to_pickup, _ = self.graph.find_shortest_path(current_location, package.pickup)
+                if path_to_pickup:
+                    path_to_delivery, _ = self.graph.find_shortest_path(package.pickup, package.delivery)
+                    
+                    if path_to_delivery:
+                        # First visit the pickup location if not already there
+                        if current_location != package.pickup:
+                            route.append(package.pickup)
+                            current_location = package.pickup
+                            
+                        package_operations.append((package.pickup, "pickup", package.id))
+                        
+                        # Then visit the delivery location
+                        route.append(package.delivery)
+                        package_operations.append((package.delivery, "delivery", package.id))
+                        
+                        # Update current location and mark package as handled
+                        current_location = package.delivery
+                        handled_packages.add(package.id)
             
-            # If even the base route is invalid, create a fallback route
-            if full_path is None:
-                fallback_route = self._create_fallback_route(start_location, required_locations)
-                full_path, total_distance = self.graph.find_path_distance(fallback_route)
-                # If fallback still fails, use a very simple route
-                if full_path is None:
-                    return required_locations, sum(300 for _ in range(len(required_locations)-1))
-                return fallback_route, total_distance
-            
-            return base_route, total_distance
+            # Special case: Distribution Center → Home package (constraint)
+            elif package.pickup == "Distribution Center" and package.delivery == "Home":
+                # Only add if we can reach both locations
+                path_to_pickup, _ = self.graph.find_shortest_path(current_location, package.pickup)
+                if path_to_pickup:
+                    path_to_delivery, _ = self.graph.find_shortest_path(package.pickup, package.delivery)
+                    
+                    if path_to_delivery:
+                        # First visit the pickup location if not already there
+                        if current_location != package.pickup:
+                            route.append(package.pickup)
+                            current_location = package.pickup
+                            
+                        package_operations.append((package.pickup, "pickup", package.id))
+                        
+                        # Then visit the delivery location
+                        route.append(package.delivery)
+                        package_operations.append((package.delivery, "delivery", package.id))
+                        
+                        # Update current location and mark package as handled
+                        current_location = package.delivery
+                        handled_packages.add(package.id)
         
-        return improved_route, total_distance
+        # Second pass: handle remaining packages
+        for package in packages:
+            # Skip if already handled
+            if package.id in handled_packages:
+                continue
+                
+            # Find path to pickup
+            path_to_pickup, _ = self.graph.find_shortest_path(current_location, package.pickup)
+            if path_to_pickup:
+                # First visit the pickup location if not already there
+                if current_location != package.pickup:
+                    route.append(package.pickup)
+                    current_location = package.pickup
+                
+                package_operations.append((package.pickup, "pickup", package.id))
+                
+                # Find path to delivery
+                path_to_delivery, _ = self.graph.find_shortest_path(current_location, package.delivery)
+                if path_to_delivery:
+                    # Visit the delivery location
+                    route.append(package.delivery)
+                    package_operations.append((package.delivery, "delivery", package.id))
+                    
+                    # Update current location and mark package as handled
+                    current_location = package.delivery
+                    handled_packages.add(package.id)
+        
+        # Third pass: make sure we've visited all required locations
+        for location in required_locations:
+            if location not in route:
+                # Try to find a path to this location
+                path, _ = self.graph.find_shortest_path(current_location, location)
+                if path:
+                    route.append(location)
+                    current_location = location
+        
+        # Finally, check if the route satisfies constraints
+        valid, _ = self.constraints.validate_route(route)
+        if not valid:
+            # If not valid, use the constraint-based route as fallback
+            fallback_route = self._create_constraint_satisfied_route(start_location, required_locations)
+            
+            # Calculate distance for fallback route
+            _, fallback_distance = self.graph.find_path_distance(fallback_route)
+            return fallback_route, fallback_distance, []
+        
+        # Calculate the total distance of this route
+        _, total_distance = self.graph.find_path_distance(route)
+        if total_distance == float('inf'):
+            # If path is invalid, use constraint-based route
+            fallback_route = self._create_constraint_satisfied_route(start_location, required_locations)
+            _, fallback_distance = self.graph.find_path_distance(fallback_route)
+            return fallback_route, fallback_distance, []
+            
+        return route, total_distance, package_operations
     
     def _create_constraint_satisfied_route(self, start, locations):
         """Create a route that satisfies all constraints"""
         route = [start]
-        remaining = set(locations) - {start}
+        remaining = [loc for loc in locations if loc != start]
         
         # First handle Warehouse and Shop (Warehouse must come before Shop)
         if "Warehouse" not in route and "Warehouse" in remaining:
@@ -99,37 +194,3 @@ class RouteOptimizer:
                         improved = True
         
         return best_route
-    
-    def _create_fallback_route(self, start, locations):
-        """Create a simple fallback route that works even with many road closures"""
-        # This is a last resort route that just ensures constraints are satisfied
-        route = [start]
-        visited = {start}
-        
-        # Force specific order to satisfy constraints
-        order = []
-        
-        # Warehouse must come before Shop
-        if "Warehouse" not in visited and "Warehouse" in locations:
-            order.append("Warehouse")
-        if "Shop" in locations:
-            order.append("Shop")
-            
-        # Distribution Center must come before Home
-        if "Distribution Center" not in visited and "Distribution Center" in locations:
-            order.append("Distribution Center")
-        if "Home" in locations:
-            order.append("Home")
-            
-        # Add remaining locations
-        for loc in locations:
-            if loc not in visited and loc not in order:
-                order.append(loc)
-        
-        # Add the ordered locations to the route
-        for loc in order:
-            if loc not in visited:
-                route.append(loc)
-                visited.add(loc)
-        
-        return route

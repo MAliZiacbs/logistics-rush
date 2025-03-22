@@ -18,11 +18,13 @@ class LogisticsGraph:
         self.locations = locations
         self.road_segments = road_segments
         self.distances = distances
+        self.closed_roads = []
     
     def close_road(self, loc1, loc2):
         """Close a road between two locations"""
         if self.graph.has_edge(loc1, loc2):
             self.graph.remove_edge(loc1, loc2)
+            self.closed_roads.append((loc1, loc2))
             return True
         return False
     
@@ -31,13 +33,23 @@ class LogisticsGraph:
         return not self.graph.has_edge(loc1, loc2)
     
     def find_shortest_path(self, start, end):
-        """Find the shortest path between two locations"""
+        """Find the shortest path between two locations, ensuring no closed roads are used"""
+        # If there's no connection at all, return none
         if not nx.has_path(self.graph, start, end):
             return None, float('inf')
         
         try:
+            # Get the shortest path using NetworkX
             path = nx.shortest_path(self.graph, start, end, weight='weight')
-            distance = sum(self.graph[path[i]][path[i+1]]['weight'] for i in range(len(path)-1))
+            
+            # Calculate the total distance
+            distance = 0
+            for i in range(len(path) - 1):
+                # Verify that each segment is not a closed road
+                if not self.graph.has_edge(path[i], path[i+1]):
+                    return None, float('inf')  # This should never happen but added for safety
+                distance += self.graph[path[i]][path[i+1]]['weight']
+                
             return path, distance
         except nx.NetworkXNoPath:
             return None, float('inf')
