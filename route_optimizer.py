@@ -1,3 +1,5 @@
+from constraints_manager import ConstraintsManager
+
 class RouteOptimizer:
     def __init__(self, logistics_graph):
         """Initialize with a LogisticsGraph instance"""
