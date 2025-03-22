@@ -14,6 +14,7 @@ from visualization import visualize_map
 from visualization_renders import render_action_controls, render_game_info, render_game_results
 from data_management import save_player_data, export_player_data, reset_leaderboard, reset_all_data
 import route_analysis  # Import the new route analysis module
+import diagnostics  # Added import for diagnostics
 
 # Page configuration
 st.set_page_config(page_title="Logistics Rush", page_icon="🚚", layout="wide")
@@ -86,6 +87,20 @@ if 'total_packages' not in st.session_state:
 if 'num_road_closures' not in st.session_state:
     st.session_state.num_road_closures = 1
 
+# Initialize diagnostics state - New
+if 'all_game_diagnostics' not in st.session_state:
+    try:
+        if os.path.exists('game_diagnostics.json'):
+            with open('game_diagnostics.json', 'r') as f:
+                if os.path.getsize('game_diagnostics.json') > 0:
+                    st.session_state.all_game_diagnostics = json.load(f)
+                else:
+                    st.session_state.all_game_diagnostics = []
+        else:
+            st.session_state.all_game_diagnostics = []
+    except:
+        st.session_state.all_game_diagnostics = []
+
 # Initialize route tracking
 route_analysis.init_route_tracking()
 
@@ -93,8 +108,8 @@ route_analysis.init_route_tracking()
 st.markdown('<h1 class="main-title">🚚 Logistics Rush</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe_allow_html=True)
 
-# Tabs
-tab1, tab2, tab3 = st.tabs(["Game", "Leaderboard", "Instructions"])
+# Tabs - Modified to add diagnostics tab
+tab1, tab2, tab3, tab4 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics"])
 
 with tab1:
     col1, col2 = st.columns([2, 1])  # Left column for map and actions, right for info
@@ -260,3 +275,7 @@ with tab3:
     
     Try to find a more efficient route than the AI's calculated optimal path to earn a perfect efficiency score!
     """)
+
+# Add new Diagnostics tab
+with tab4:
+    diagnostics.render_diagnostics_tab()

@@ -2,6 +2,7 @@ import streamlit as st
 import random
 import networkx as nx
 from itertools import combinations
+import diagnostics  # Added import for diagnostics
 
 from config import LOCATIONS, ROAD_SEGMENTS, DISTANCES
 
@@ -28,6 +29,7 @@ def validate_package_delivery(G, packages):
         
         segment_path, segment_distance = calculate_segment_path(pickup, delivery)
         if segment_path is None or segment_distance == float('inf'):
+            diagnostics.log_error("Package Delivery Validation", f"No path for package from {pickup} to {delivery}")
             return False
     
     # Check if constraints can still be satisfied
@@ -36,6 +38,7 @@ def validate_package_delivery(G, packages):
     
     if (warehouse_to_shop_path is None or warehouse_to_shop_dist == float('inf') or 
         dc_to_home_path is None or dc_to_home_dist == float('inf')):
+        diagnostics.log_error("Constraint Validation", "No valid paths for constraint requirements")
         return False
     
     # Check key route segments to ensure playability - using actual paths not just connectivity
@@ -49,6 +52,7 @@ def validate_package_delivery(G, packages):
     for path in critical_paths:
         segment_path, segment_distance = calculate_segment_path(path[0], path[1])
         if segment_path is None or segment_distance == float('inf'):
+            diagnostics.log_error("Critical Path Validation", f"No path for critical segment {path[0]} to {path[1]}")
             return False
     
     return True
@@ -58,6 +62,8 @@ def generate_road_closures(num_closures=1, max_attempts=100):
     Generate random road closures with improved validation to ensure playable situations.
     Ensures that all packages can be delivered and all constraints can be met.
     """
+    diagnostics.log_event("Road Closure Generation", f"Generating {num_closures} closures")
+    
     # Ensure we never close more than 3 roads (hard mode cap)
     num_closures = min(num_closures, 3)
     
@@ -105,6 +111,8 @@ def generate_road_closures(num_closures=1, max_attempts=100):
             
             if validate_package_delivery(test_G, packages):
                 st.session_state.closed_roads = chosen_closures
+                diagnostics.log_road_closures(chosen_closures)  # Log the chosen closures
+                diagnostics.log_event("Road Closure Generation", f"Using safe closure set: {chosen_closures}")
                 return chosen_closures
     
     # If predefined closures don't work or we have a different number of closures,
@@ -125,11 +133,14 @@ def generate_road_closures(num_closures=1, max_attempts=100):
         # Check if the graph is still connected and all packages can be delivered
         if nx.is_connected(test_G) and validate_package_delivery(test_G, packages):
             st.session_state.closed_roads = candidate_closures
+            diagnostics.log_road_closures(candidate_closures)  # Log the chosen closures
+            diagnostics.log_event("Road Closure Generation", f"Found valid closures after {attempt+1} attempts: {candidate_closures}")
             return candidate_closures
     
     # If we couldn't find a valid setup with the requested number of closures,
     # try with fewer closures but alert the user
     for reduced_closures in range(num_closures-1, 0, -1):
+        diagnostics.log_event("Road Closure Generation", f"Reducing to {reduced_closures} closures")
         for attempt in range(max_attempts):
             random.shuffle(all_road_segments)
             candidate_closures = all_road_segments[:reduced_closures]
@@ -143,13 +154,17 @@ def generate_road_closures(num_closures=1, max_attempts=100):
             # Check if the graph is still connected and all packages can be delivered
             if nx.is_connected(test_G) and validate_package_delivery(test_G, packages):
                 st.session_state.closed_roads = candidate_closures
+                diagnostics.log_road_closures(candidate_closures)  # Log the chosen closures
                 # Notify that difficulty was reduced
+                diagnostics.log_event("Road Closure Generation", f"Reduced to {reduced_closures} closures, found valid set: {candidate_closures}")
                 st.warning(f"Difficulty reduced to {reduced_closures} road closure(s) to ensure a playable game.")
                 return candidate_closures
     
     # Fall back to a single safe closure if everything else fails
     fallback_closures = [("Warehouse", "Shop")]
     st.session_state.closed_roads = fallback_closures
+    diagnostics.log_road_closures(fallback_closures)  # Log the chosen closures
+    diagnostics.log_event("Road Closure Generation", "Falling back to guaranteed safe closure")
     st.warning("Difficulty reduced to Easy (1 road closure) to ensure a playable game.")
     return fallback_closures
 
@@ -179,9 +194,14 @@ def add_random_closure():
         
         if nx.is_connected(test_G) and validate_package_delivery(test_G, packages):
             st.session_state.closed_roads.append(road)
+            diagnostics.log_event("Road Closure Added", f"Added new road closure: {road}")
             st.warning(f"⛔️ ALERT: Road between {road[0]} and {road[1]} is now closed!")
+            
+            # Update diagnostics with new closure
+            diagnostics.log_road_closures(st.session_state.closed_roads)
             return True
     
+    diagnostics.log_event("Road Closure Addition", "Failed to find valid new closure")
     return False
 
 def remove_random_closure():
@@ -191,13 +211,18 @@ def remove_random_closure():
     
     closure_index = random.randint(0, len(st.session_state.closed_roads) - 1)
     removed_closure = st.session_state.closed_roads.pop(closure_index)
+    diagnostics.log_event("Road Closure Removed", f"Removed road closure: {removed_closure}")
+    
+    # Update diagnostics with new closure set
+    diagnostics.log_road_closures(st.session_state.closed_roads)
+    
     st.success(f"✅ Road between {removed_closure[0]} and {removed_closure[1]} has been reopened!")
     return True
 
 def get_best_detour(from_loc, to_loc):
     """Find the best detour route between two locations when the direct route is closed"""
     if not is_road_closed(from_loc, to_loc):
-        return [from_loc, to_loc]
+        return [from_loc, to_loc], get_distance(from_loc, to_loc)
     
     G = nx.Graph()
     for loc in LOCATIONS:
@@ -214,6 +239,8 @@ def get_best_detour(from_loc, to_loc):
     
     try:
         path = nx.shortest_path(G, from_loc, to_loc, weight='weight')
+        diagnostics.log_event("Detour Found", f"Found detour from {from_loc} to {to_loc}: {path}")
         return path
     except (nx.NetworkXNoPath, nx.NodeNotFound):
-        return None
+        diagnostics.log_error("Detour Search", f"No detour path found from {from_loc} to {to_loc}")
+        return None, float('inf')

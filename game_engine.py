@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import time
+import diagnostics  # Added import for diagnostics
 
 from config import LOCATIONS, SCORING_WEIGHTS, check_constraints
 from routing import solve_tsp, get_distance, calculate_route_distance
@@ -81,6 +82,9 @@ def start_new_game():
     st.session_state.game_active = True
     st.session_state.start_time = time.time()
     
+    # Initialize diagnostics for the new game
+    diagnostics.init_diagnostics()
+    
     st.session_state.current_package = None
     st.session_state.delivered_packages = []
     st.session_state.current_route = ["Warehouse"]  # Start at Warehouse
@@ -131,6 +135,9 @@ def start_new_game():
         st.warning(f"Using default road closures to ensure a playable game. Error: {e}")
         st.session_state.closed_roads = [("Warehouse", "Shop")]  # Safe default
         update_difficulty_display(1)  # Set to Easy mode
+        
+        # Log the error in diagnostics
+        diagnostics.log_error("Road Closure Generation", str(e))
 
     try:
         # Try to find an optimal route with the improved algorithm
@@ -142,6 +149,7 @@ def start_new_game():
         
         if not valid_optimal:
             st.warning("Optimal route calculation encountered challenges. Using best available solution.")
+            diagnostics.log_error("Optimal Route Validation", "Route validation failed, using fallback")
             
             # If validation fails, try the fallback route
             from routing import fallback_route
@@ -150,6 +158,7 @@ def start_new_game():
         # Sanity check for distance
         if optimal_distance < 50 or optimal_distance == float('inf'):
             st.warning("Optimal route has unrealistic distance. Using validated distance calculation.")
+            diagnostics.log_error("Optimal Route Distance", f"Unrealistic distance: {optimal_distance}")
             
             # Recalculate distance properly
             from routing import calculate_route_distance
@@ -165,6 +174,8 @@ def start_new_game():
                 
     except Exception as e:
         st.error(f"Route calculation error: {e}")
+        diagnostics.log_error("Route Calculation Error", str(e))
+        
         # Create a minimal valid route as fallback
         optimal_route = [{"location": loc, "action": "visit", "package_id": None} for loc in locations_to_visit]
         optimal_path = locations_to_visit
@@ -179,25 +190,35 @@ def start_new_game():
     st.session_state.optimal_route = optimal_route
     st.session_state.optimal_path = optimal_path if optimal_path else ["Warehouse"]
     st.session_state.optimal_distance = optimal_distance if optimal_distance != float('inf') else 0
+    
+    # Log diagnostics for the optimal route
+    diagnostics.log_optimal_route_data(optimal_route, optimal_path, optimal_distance)
 
 def process_location_checkin(location):
     """Process a player checking in at a location"""
     if not st.session_state.game_active:
         st.warning("Please start a new game first!")
         return None
+    
+    # Log route change in diagnostics
+    diagnostics.log_route_change(location, True)
         
     if len(st.session_state.current_route) > 0:
         current_location = st.session_state.current_route[-1]
         if is_road_closed(current_location, location):
             st.error(f"❌ Road from {current_location} to {location} is closed! Find another route.")
+            diagnostics.log_route_change(location, False)
             return None
 
     temp_route = st.session_state.current_route + [location]
     if not check_constraints(temp_route):
         if location == "Shop" and "Warehouse" not in st.session_state.current_route:
             st.error("You must visit Warehouse before Shop!")
+            diagnostics.log_error("Constraint Violation", "Attempted to visit Shop before Warehouse")
         elif location == "Home" and "Distribution Center" not in st.session_state.current_route:
             st.error("You must visit Distribution Center before Home!")
+            diagnostics.log_error("Constraint Violation", "Attempted to visit Home before Distribution Center")
+        diagnostics.log_route_change(location, False)
         return None
     
     # First update the route - this is critical for visualization
@@ -210,6 +231,9 @@ def process_location_checkin(location):
         
         # Record this delivery operation using the route_analysis module
         route_analysis.record_delivery(location, package_id)
+        
+        # Log package delivery in diagnostics
+        diagnostics.log_package_operation("delivery", location, package_id)
         
         st.session_state.current_package = None
         st.success(f"📦 Package delivered successfully to {location}!")
@@ -227,6 +251,7 @@ def process_location_checkin(location):
         if st.session_state.current_route[0] != st.session_state.current_route[-1]:
             if not is_road_closed(st.session_state.current_route[-1], st.session_state.current_route[0]):
                 st.session_state.current_route.append(st.session_state.current_route[0])
+                diagnostics.log_event("Complete Route", "Added return to starting location")
         return end_game()
             
     return True  # Return True to indicate successful check-in
@@ -241,6 +266,9 @@ def pickup_package(package):
     # Record this pickup operation using the route_analysis module
     current_location = st.session_state.current_route[-1] if st.session_state.current_route else None
     route_analysis.record_pickup(current_location, package["id"])
+    
+    # Log package pickup in diagnostics
+    diagnostics.log_package_operation("pickup", current_location, package["id"])
     
     st.success(f"Package #{package['id']} picked up! Deliver to {package['delivery']}.")
 
@@ -291,12 +319,15 @@ def end_game():
             _, recalculated_distance = calculate_route_distance(st.session_state.optimal_path)
             if recalculated_distance != float('inf') and recalculated_distance >= 50:
                 optimal_distance = recalculated_distance
+                diagnostics.log_event("Distance Recalculation", f"Optimal distance adjusted from <50 to {optimal_distance}")
             else:
                 # Use a reasonable fallback - 60% of player's distance as a heuristic
                 optimal_distance = max(player_distance * 0.6, 100)  # At least 100cm
+                diagnostics.log_event("Distance Fallback", f"Using 60% of player distance: {optimal_distance}")
         else:
             # Use a reasonable fallback - 60% of player's distance as a heuristic
             optimal_distance = max(player_distance * 0.6, 100)  # At least 100cm
+            diagnostics.log_event("Distance Fallback", f"No optimal path, using 60% of player distance: {optimal_distance}")
 
     # Ensure the optimal path includes all locations and handles all packages
     if hasattr(st.session_state, 'optimal_path') and st.session_state.optimal_path:
@@ -312,15 +343,19 @@ def end_game():
                 warehouse_idx = current_path.index("Warehouse")
                 current_path.insert(warehouse_idx + 1, "Shop")
                 missing_locations.remove("Shop")
+                diagnostics.log_event("Path Correction", f"Added Shop after Warehouse in optimal path")
                 
             if "Distribution Center" in current_path and "Home" in missing_locations:
                 # Insert Home after Distribution Center
                 dc_idx = current_path.index("Distribution Center")
                 current_path.insert(dc_idx + 1, "Home")
                 missing_locations.remove("Home")
+                diagnostics.log_event("Path Correction", f"Added Home after Distribution Center in optimal path")
                 
             # Add any remaining missing locations at the end
             current_path.extend(missing_locations)
+            if missing_locations:
+                diagnostics.log_event("Path Correction", f"Added remaining locations to optimal path: {missing_locations}")
             
             # Update the optimal path
             st.session_state.optimal_path = current_path
@@ -329,6 +364,7 @@ def end_game():
             _, recalculated_distance = calculate_route_distance(st.session_state.optimal_path)
             if recalculated_distance != float('inf') and recalculated_distance >= 50:
                 optimal_distance = recalculated_distance
+                diagnostics.log_event("Distance Recalculation", f"Optimal distance adjusted to {optimal_distance} after adding missing locations")
 
     # Compare player's route to optimal route
     # If player's distance is better (shorter) than the "optimal", update the optimal
@@ -336,6 +372,7 @@ def end_game():
     if player_distance < optimal_distance and player_distance > 0:
         # Player found a better route than the calculated "optimal"
         st.success("You found a more efficient route than the algorithm! 🎉")
+        diagnostics.log_event("Better Route", f"Player found a better route: {player_distance} cm vs optimal {optimal_distance} cm")
         
         # Update the optimal path and distance for visualization
         st.session_state.optimal_path = st.session_state.current_route.copy()
@@ -449,6 +486,7 @@ def end_game():
                     # Add intermediate locations in the detour
                     for loc in segment_path[1:-1]:
                         valid_optimal_path.append(loc)
+                    diagnostics.log_event("Optimal Path Correction", f"Added detour for closed road: {prev_loc} → {curr_loc}")
             
             valid_optimal_path.append(curr_loc)
         
@@ -461,6 +499,7 @@ def end_game():
         if missing_locations:
             for loc in missing_locations:
                 optimal_path.append(loc)
+            diagnostics.log_event("Optimal Path Completion", f"Added missing locations to final optimal path: {missing_locations}")
     
     # Store the consistent path for both visualization and text description
     st.session_state.completed_routes = {
@@ -527,6 +566,10 @@ def end_game():
         "distance_units": "cm"  # Add distance units
     }
     st.session_state.game_results = results
+    
+    # Finalize diagnostics
+    diagnostics.finalize_game_diagnostics()
+    
     return results
 
 def get_completion_summary():
@@ -542,6 +585,7 @@ def get_completion_summary():
     remaining_packages = total_packages - delivered_packages
     constraints_followed = check_constraints(st.session_state.current_route)
     constraint_issues = []
+
     if not constraints_followed:
         if "Factory" in st.session_state.current_route and "Shop" in st.session_state.current_route:
             f_idx = st.session_state.current_route.index("Factory")

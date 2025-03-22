@@ -2,6 +2,7 @@ import streamlit as st
 import random
 from config import LOCATIONS
 from feature_road_closures import is_road_closed
+import diagnostics  # Added import for diagnostics
 
 def generate_packages(num_packages=3):
     """Generate random package pickup and delivery locations that don't conflict with constraints"""
@@ -62,6 +63,7 @@ def generate_packages(num_packages=3):
                 "description": f"Package from {pickup} to {delivery}"
             })
     
+    diagnostics.log_event("Packages Generated", f"Created {len(packages)} packages")
     return packages
 
 def get_available_packages_at_location(location):
@@ -76,11 +78,13 @@ def pickup_package_by_id(package_id):
     """Pick up a package by ID (for use in UI)"""
     current_location = st.session_state.current_route[-1] if st.session_state.current_route else None
     if not current_location:
+        diagnostics.log_error("Package Pickup", "No current location for pickup")
         return False
         
     # If already carrying a package, cannot pick up another
     if st.session_state.current_package:
         st.warning("You are already carrying a package. Deliver it first before picking up another.")
+        diagnostics.log_error("Package Pickup", "Attempted to pick up while carrying another package")
         return False
         
     # Find the package with the given ID
@@ -89,14 +93,20 @@ def pickup_package_by_id(package_id):
             # Pick up the package
             pkg["status"] = "picked_up"
             st.session_state.current_package = pkg
-            return True
             
+            # Log the pickup in diagnostics
+            diagnostics.log_package_operation("pickup", current_location, package_id)
+            
+            return True
+    
+    diagnostics.log_error("Package Pickup", f"Package {package_id} not found or not available at {current_location}")
     return False
 
 def deliver_package():
     """Deliver the currently held package at the current location"""
     current_location = st.session_state.current_route[-1] if st.session_state.current_route else None
     if not current_location or not st.session_state.current_package:
+        diagnostics.log_error("Package Delivery", "No current location or no package to deliver")
         return False
         
     # Check if at the correct delivery location
@@ -104,9 +114,14 @@ def deliver_package():
         st.session_state.current_package["status"] = "delivered"
         st.session_state.delivered_packages.append(st.session_state.current_package)
         package_id = st.session_state.current_package["id"]
+        
+        # Log the delivery in diagnostics
+        diagnostics.log_package_operation("delivery", current_location, package_id)
+        
         st.session_state.current_package = None
         return package_id
-        
+    
+    diagnostics.log_error("Package Delivery", f"Wrong delivery location: expected {st.session_state.current_package['delivery']}, got {current_location}")    
     return False
 
 def get_package_statistics():
@@ -177,6 +192,9 @@ def add_random_package():
     
     st.session_state.packages.append(new_package)
     st.session_state.total_packages += 1
+    
+    diagnostics.log_event("Random Package Added", f"Added package #{next_id} from {pickup} to {delivery}")
+    
     st.info(f"New package #{next_id} ({new_package['icon']}) is available for pickup at {pickup}!")
     return new_package
 

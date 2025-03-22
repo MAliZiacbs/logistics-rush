@@ -3,6 +3,7 @@ from itertools import permutations
 import random
 import networkx as nx
 import copy
+import diagnostics  # Added import for diagnostics
 
 from config import DISTANCES, LOCATIONS, check_constraints
 from feature_road_closures import is_road_closed
@@ -11,13 +12,21 @@ from routing_optimization import apply_two_opt, apply_three_opt, strategic_packa
 def get_distance(loc1, loc2):
     """Get the distance between two locations, accounting for road closures"""
     if is_road_closed(loc1, loc2):
-        return float('inf')
+        distance = float('inf')
+        diagnostics.log_distance_calculation(loc1, loc2, distance)
+        return distance
     if (loc1, loc2) in DISTANCES:
-        return DISTANCES[(loc1, loc2)]
+        distance = DISTANCES[(loc1, loc2)]
+        diagnostics.log_distance_calculation(loc1, loc2, distance)
+        return distance
     elif (loc2, loc1) in DISTANCES:
-        return DISTANCES[(loc2, loc1)]
+        distance = DISTANCES[(loc2, loc1)]
+        diagnostics.log_distance_calculation(loc1, loc2, distance)
+        return distance
     else:
-        return float('inf')
+        distance = float('inf')
+        diagnostics.log_distance_calculation(loc1, loc2, distance)
+        return distance
 
 def find_detour(from_loc, to_loc):
     """Find a detour route when direct path is closed"""
@@ -37,11 +46,17 @@ def calculate_segment_path(from_loc, to_loc):
     direct_distance = get_distance(from_loc, to_loc)
     if direct_distance != float('inf'):
         return [from_loc, to_loc], direct_distance
+    
     detour_route, detour_distance = find_detour(from_loc, to_loc)
     if detour_route:
+        # Log the detour in diagnostics
+        diagnostics.log_distance_calculation(from_loc, to_loc, detour_distance, False, detour_route)
         return detour_route, detour_distance
+    
     return None, float('inf')
 
+# Apply exception catching decorator to critical functions
+@diagnostics.catch_and_log_exceptions
 def calculate_route_distance(route):
     """
     Calculate the total distance of a route with detours, returning two values.
@@ -68,12 +83,15 @@ def calculate_route_distance(route):
             segment_path, segment_distance = calculate_segment_path(loc_route[i], loc_route[i+1])
             
         if segment_distance == float('inf'):
+            diagnostics.log_error("Route Distance", f"No path found between {loc_route[i]} and {loc_route[i+1]}")
             return None, float('inf')
+            
         total_distance += segment_distance
         if i == 0:
             full_path.extend(segment_path)
         else:
             full_path.extend(segment_path[1:])  # Avoid duplicating locations
+    
     return full_path, total_distance
 
 def is_valid_route(route):
@@ -337,6 +355,7 @@ def create_action_route(route):
     
     return action_route
 
+@diagnostics.catch_and_log_exceptions
 def solve_tsp_improved(start_location, locations, packages):
     """
     Advanced TSP solver with package constraints, road closure awareness, 
@@ -365,19 +384,25 @@ def solve_tsp_improved(start_location, locations, packages):
     route_candidates = []
     
     # Strategy 1: Nearest Neighbor
+    diagnostics.log_event("Route Generation", "Trying nearest neighbor strategy")
     nn_route = nearest_neighbor_route(start_location, locations)
     if nn_route and check_constraints(nn_route):
         route_candidates.append((nn_route, "nearest_neighbor"))
+        diagnostics.log_event("Route Generation", "Valid nearest neighbor route found")
     
     # Strategy 2: Insertion
+    diagnostics.log_event("Route Generation", "Trying insertion strategy")
     ins_route = insertion_route(start_location, locations)
     if ins_route and check_constraints(ins_route):
         route_candidates.append((ins_route, "insertion"))
+        diagnostics.log_event("Route Generation", "Valid insertion route found")
     
     # Strategy 3: MST Approximation
+    diagnostics.log_event("Route Generation", "Trying MST approximation strategy")
     mst_route = mst_approximation(start_location, locations)
     if mst_route and check_constraints(mst_route):
         route_candidates.append((mst_route, "mst"))
+        diagnostics.log_event("Route Generation", "Valid MST route found")
     
     # Strategy 4: Package-aware routing
     # Start with constraint-based ordering and optimize
@@ -416,10 +441,12 @@ def solve_tsp_improved(start_location, locations, packages):
     # Only add if it satisfies constraints (should always be true by construction)
     if check_constraints(constraint_route):
         route_candidates.append((constraint_route, "constraint_based"))
+        diagnostics.log_event("Route Generation", "Valid constraint-based route found")
     
     # Try brute force with constraints for small problems
     max_brute_force_size = 8
     if len(locations) <= max_brute_force_size:
+        diagnostics.log_event("Route Generation", "Trying brute force for small problem")
         valid_perms = []
         # Only try a subset of permutations for medium-sized problems
         max_perms = 1000 if len(locations) > 6 else None
@@ -428,6 +455,7 @@ def solve_tsp_improved(start_location, locations, packages):
         for perm in permutations(locations):
             perm_count += 1
             if max_perms is not None and perm_count > max_perms:
+                diagnostics.log_event("Route Generation", f"Brute force search stopped after {max_perms} permutations")
                 break
                 
             # Ensure starts with start_location
@@ -450,6 +478,7 @@ def solve_tsp_improved(start_location, locations, packages):
         
         if best_perm:
             route_candidates.append((list(best_perm), "brute_force"))
+            diagnostics.log_event("Route Generation", f"Valid brute force route found with distance {best_dist}")
     
     # Apply improvement heuristics to each candidate
     improved_candidates = []
@@ -460,19 +489,25 @@ def solve_tsp_improved(start_location, locations, packages):
             continue
             
         # Apply 2-opt improvement
+        diagnostics.log_event("Route Improvement", f"Applying 2-opt to {strategy} route")
         improved_2opt = apply_two_opt(route)
         if improved_2opt and check_constraints(improved_2opt):
             improved_candidates.append((improved_2opt, f"{strategy}_2opt"))
+            diagnostics.log_event("Route Improvement", f"Valid 2-opt improvement for {strategy} found")
         
         # Apply 3-opt improvement for better results
+        diagnostics.log_event("Route Improvement", f"Applying 3-opt to {strategy} route")
         improved_3opt = apply_three_opt(route)
         if improved_3opt and check_constraints(improved_3opt):
             improved_candidates.append((improved_3opt, f"{strategy}_3opt"))
+            diagnostics.log_event("Route Improvement", f"Valid 3-opt improvement for {strategy} found")
         
         # Apply strategic package handling optimization
+        diagnostics.log_event("Route Improvement", f"Applying package optimization to {strategy} route")
         package_optimized = strategic_package_handling(route, packages)
         if package_optimized and check_constraints(package_optimized):
             improved_candidates.append((package_optimized, f"{strategy}_pkg_opt"))
+            diagnostics.log_event("Route Improvement", f"Valid package optimization for {strategy} found")
     
     # Find the best route based on distance
     best_route = None
@@ -485,6 +520,11 @@ def solve_tsp_improved(start_location, locations, packages):
             best_distance = distance
             best_route = route
             best_strategy = strategy
+    
+    if best_route:
+        diagnostics.log_event("Route Selection", f"Best route found using {best_strategy} with distance {best_distance}")
+    else:
+        diagnostics.log_error("Route Selection", "No valid route found among candidates")
     
     # If we have a valid route, convert it to action route
     if best_route:
@@ -514,21 +554,28 @@ def solve_tsp_improved(start_location, locations, packages):
                 total_distance += segment_distance
             else:
                 # If no path is found, this shouldn't happen after validation
+                diagnostics.log_error("Path Creation", f"No path found between {loc_route[i]} and {loc_route[i+1]}")
                 return fallback_route(start_location, locations, packages)
         
         if full_path:
             # Final check to ensure the path is valid
             if validate_optimal_route(action_route, full_path, packages):
                 return action_route, full_path, total_distance
-    
+            else:
+                diagnostics.log_error("Route Validation", "Final route validation failed")
+                
     # If no valid route found, create a fallback route
+    diagnostics.log_event("Route Fallback", "Using fallback route creation")
     return fallback_route(start_location, locations, packages)
 
+@diagnostics.catch_and_log_exceptions
 def fallback_route(start_location, locations, packages):
     """
     Create a fallback route when the optimal solution can't be found.
     Ensures a valid route that satisfies all constraints and avoids closed roads.
     """
+    diagnostics.log_event("Fallback Route", "Creating fallback route")
+    
     # Create a valid location sequence that satisfies constraints
     location_sequence = []
     
@@ -552,36 +599,41 @@ def fallback_route(start_location, locations, packages):
             return None
     
     # Add constraint locations in correct order, ensuring we can reach them
-    # Make sure Factory comes before Shop
-    if "Factory" not in location_sequence:
-        factory_path = find_valid_path(location_sequence[-1], "Factory")
+    # Make sure Warehouse comes before Shop
+    if "Warehouse" not in location_sequence:
+        factory_path = find_valid_path(location_sequence[-1], "Warehouse")
         if factory_path:
             # Add all locations along path except the starting point which is already there
             location_sequence.extend(factory_path[1:])
+            diagnostics.log_event("Fallback Route", f"Added path to Warehouse: {factory_path[1:]}")
     
-    # Make sure DHL Hub comes next after Factory if not already visited
-    if "DHL Hub" not in location_sequence:
-        dhl_path = find_valid_path(location_sequence[-1], "DHL Hub")
+    # Make sure Distribution Center comes next after Warehouse if not already visited
+    if "Distribution Center" not in location_sequence:
+        dhl_path = find_valid_path(location_sequence[-1], "Distribution Center")
         if dhl_path:
             location_sequence.extend(dhl_path[1:])
+            diagnostics.log_event("Fallback Route", f"Added path to Distribution Center: {dhl_path[1:]}")
     
-    # Then add Shop after Factory
+    # Then add Shop after Warehouse
     if "Shop" not in location_sequence:
         shop_path = find_valid_path(location_sequence[-1], "Shop")
         if shop_path:
             location_sequence.extend(shop_path[1:])
+            diagnostics.log_event("Fallback Route", f"Added path to Shop: {shop_path[1:]}")
     
-    # Finally add Residence after DHL Hub
-    if "Residence" not in location_sequence:
-        res_path = find_valid_path(location_sequence[-1], "Residence")
+    # Finally add Home after Distribution Center
+    if "Home" not in location_sequence:
+        res_path = find_valid_path(location_sequence[-1], "Home")
         if res_path:
             location_sequence.extend(res_path[1:])
+            diagnostics.log_event("Fallback Route", f"Added path to Home: {res_path[1:]}")
     
     # Complete the circuit back to start if possible
     if location_sequence[-1] != start_location:
         return_path = find_valid_path(location_sequence[-1], start_location)
         if return_path:
             location_sequence.extend(return_path[1:])
+            diagnostics.log_event("Fallback Route", f"Added return path to start: {return_path[1:]}")
     
     # Ensure all locations are included
     for loc in locations:
@@ -607,42 +659,49 @@ def fallback_route(start_location, locations, packages):
                     
                     if can_reach_from_prev and can_reach_next:
                         location_sequence.insert(i, loc)
+                        diagnostics.log_event("Fallback Route", f"Inserted {loc} at position {i}")
                         break
+            
+            # If we still couldn't add the location, log the error
+            if loc not in location_sequence:
+                diagnostics.log_error("Fallback Route", f"Unable to add {loc} to fallback route")
     
     # Final check to make sure constraints are satisfied
     if not check_constraints(location_sequence):
         # If constraints are violated, re-order the locations to satisfy them
+        diagnostics.log_error("Fallback Route", "Final constraints check failed, reordering")
+        
         # This is a last resort to ensure a valid route
         new_sequence = [start_location]
         remaining = set(location_sequence) - {start_location}
         
-        # Add Factory if not already there
-        if "Factory" in remaining and "Factory" != start_location:
-            new_sequence.append("Factory")
-            remaining.remove("Factory")
+        # Add Warehouse if not already there
+        if "Warehouse" in remaining and "Warehouse" != start_location:
+            new_sequence.append("Warehouse")
+            remaining.remove("Warehouse")
         
-        # Add DHL Hub if not already there
-        if "DHL Hub" in remaining and "DHL Hub" != start_location:
-            new_sequence.append("DHL Hub")
-            remaining.remove("DHL Hub")
+        # Add Distribution Center if not already there
+        if "Distribution Center" in remaining and "Distribution Center" != start_location:
+            new_sequence.append("Distribution Center")
+            remaining.remove("Distribution Center")
         
-        # Add Shop after Factory
+        # Add Shop after Warehouse
         if "Shop" in remaining and "Shop" != start_location:
             new_sequence.append("Shop")
             remaining.remove("Shop")
         
-        # Add Residence after DHL Hub
-        if "Residence" in remaining and "Residence" != start_location:
-            new_sequence.append("Residence")
-            remaining.remove("Residence")
+        # Add Home after Distribution Center
+        if "Home" in remaining and "Home" != start_location:
+            new_sequence.append("Home")
+            remaining.remove("Home")
         
         # Add remaining locations
         for loc in remaining:
             new_sequence.append(loc)
         
         location_sequence = new_sequence
-    
-    # Create action route
+        diagnostics.log_event("Fallback Route", f"Reordered route: {location_sequence}")
+        # Create action route
     action_route = []
     for loc in location_sequence:
         action_route.append({
@@ -676,11 +735,13 @@ def fallback_route(start_location, locations, packages):
                             valid_path.extend(path1[1:])  # Skip first to avoid duplication
                         valid_path.extend(path2[1:])  # Skip first to avoid duplication
                         detour_exists = True
+                        diagnostics.log_event("Fallback Route", f"Found detour via {intermediate}")
                         break
             
             if not detour_exists:
                 # If we can't find a valid path, we need to skip this segment
                 # and try to find an alternative route
+                diagnostics.log_error("Fallback Route", f"No path found between {location_sequence[i]} and {location_sequence[i+1]}")
                 continue
     
     # Calculate total distance (use actual segment distances)
@@ -692,8 +753,10 @@ def fallback_route(start_location, locations, packages):
         if segment_distance != float('inf'):
             total_distance += segment_distance
     
+    diagnostics.log_event("Fallback Route", f"Final fallback route created with distance {total_distance}")
     return action_route, route_path, total_distance
 
+@diagnostics.catch_and_log_exceptions
 def solve_tsp(start_location, locations):
     """
     Wrapper function that calls the improved TSP solver with packages from session state,
@@ -704,6 +767,7 @@ def solve_tsp(start_location, locations):
     
     try:
         # Try the improved implementation
+        diagnostics.log_event("TSP Solver", "Starting advanced TSP solution")
         action_route, route_path, total_distance = solve_tsp_improved(start_location, locations, packages)
         
         # Enhanced validation of the solution
@@ -714,6 +778,7 @@ def solve_tsp(start_location, locations):
         if not location_set.issubset(route_locations):
             missing_locations = [loc for loc in locations if loc not in route_path]
             st.warning(f"Optimal route calculation did not include all locations ({', '.join(missing_locations)}). Using fallback route.")
+            diagnostics.log_error("Route Validation", f"Missing locations in route: {missing_locations}")
             action_route, route_path, total_distance = fallback_route(start_location, locations, packages)
         
         # 2. Check for any closed roads in the path
@@ -722,17 +787,20 @@ def solve_tsp(start_location, locations):
             if is_road_closed(route_path[i], route_path[i+1]):
                 invalid_path = True
                 st.warning(f"Optimal route included closed road between {route_path[i]} and {route_path[i+1]}. Using fallback route.")
+                diagnostics.log_error("Route Validation", f"Route uses closed road: {route_path[i]} → {route_path[i+1]}")
                 break
         
         # 3. Verify the total distance is reasonable (not near zero or infinity)
         if total_distance < 50 or total_distance == float('inf'):
             invalid_path = True
             st.warning(f"Optimal route has unrealistic distance: {total_distance}. Using fallback route.")
+            diagnostics.log_error("Route Validation", f"Unrealistic route distance: {total_distance}")
         
         # 4. Check if the path satisfies constraints
         if not check_constraints(route_path):
             invalid_path = True
             st.warning("Optimal route does not satisfy sequence constraints. Using fallback route.")
+            diagnostics.log_error("Route Validation", "Route violates sequence constraints")
         
         # 5. Verify that all packages can be handled (critical)
         if packages:
@@ -745,6 +813,7 @@ def solve_tsp(start_location, locations):
                     if carrying_package is not None:
                         invalid_path = True
                         st.warning("Optimal route tries to carry multiple packages simultaneously. Using fallback route.")
+                        diagnostics.log_error("Route Validation", "Route attempts to carry multiple packages")
                         break
                     carrying_package = action["package_id"]
                     handled_packages.add(carrying_package)
@@ -752,6 +821,7 @@ def solve_tsp(start_location, locations):
                     if carrying_package != action["package_id"]:
                         invalid_path = True
                         st.warning("Optimal route has inconsistent package handling. Using fallback route.")
+                        diagnostics.log_error("Route Validation", "Route has inconsistent package handling")
                         break
                     carrying_package = None
             
@@ -759,13 +829,16 @@ def solve_tsp(start_location, locations):
             if len(handled_packages) < len(packages):
                 invalid_path = True
                 st.warning(f"Optimal route only handles {len(handled_packages)}/{len(packages)} packages. Using fallback route.")
+                diagnostics.log_error("Route Validation", f"Route only handles {len(handled_packages)}/{len(packages)} packages")
         
         if invalid_path:
+            diagnostics.log_event("TSP Solver", "Using fallback route due to validation issues")
             action_route, route_path, total_distance = fallback_route(start_location, locations, packages)
         
         # Critical: Ensure the route includes ALL locations after all validations
         if route_path and set(route_path) != set(locations):
             missing = [loc for loc in locations if loc not in route_path]
+            diagnostics.log_error("Route Validation", f"Still missing locations after validation: {missing}")
             
             # Add missing locations while respecting constraints
             temp_path = route_path.copy()
@@ -775,13 +848,16 @@ def solve_tsp(start_location, locations):
                     # Insert Shop after Warehouse
                     warehouse_idx = temp_path.index("Warehouse")
                     temp_path.insert(warehouse_idx + 1, loc)
+                    diagnostics.log_event("Route Correction", f"Added {loc} after Warehouse")
                 elif loc == "Home" and "Distribution Center" in temp_path:
                     # Insert Home after Distribution Center
                     dc_idx = temp_path.index("Distribution Center")
                     temp_path.insert(dc_idx + 1, loc)
+                    diagnostics.log_event("Route Correction", f"Added {loc} after Distribution Center")
                 else:
                     # Add at the end
                     temp_path.append(loc)
+                    diagnostics.log_event("Route Correction", f"Added {loc} at the end")
             
             # If the new path satisfies constraints, use it
             if check_constraints(temp_path):
@@ -799,15 +875,19 @@ def solve_tsp(start_location, locations):
                         updated_action_route.append({"location": loc, "action": "visit", "package_id": None})
                 
                 action_route = updated_action_route
+                diagnostics.log_event("Route Correction", "Rebuilt action route with all locations")
                 
                 # Recalculate total distance
                 _, recalculated_distance = calculate_route_distance(route_path)
                 if recalculated_distance != float('inf') and recalculated_distance >= 50:
                     total_distance = recalculated_distance
+                    diagnostics.log_event("Route Correction", f"Recalculated distance: {total_distance}")
             
         # Final validation of the fallback route
         if len(route_path) < len(locations) or total_distance < 50 or total_distance == float('inf'):
             st.error("Route calculation encountered serious issues. Using minimal valid route.")
+            diagnostics.log_error("Route Final Check", f"Critical route issues: path length={len(route_path)}, distance={total_distance}")
+            
             # Create a minimal valid route as absolute fallback
             route_path = ["Warehouse", "Distribution Center", "Shop", "Home"]
             
@@ -845,7 +925,7 @@ def solve_tsp(start_location, locations):
                 action_route.append({"location": "Home", "action": "deliver", "package_id": dc_to_home["id"]})
             
             # Add any remaining packages with pragmatic pickup/delivery
-            remaining_packages = [p for p in packages if p not in [warehouse_to_shop, dc_to_home]]
+            remaining_packages = [p for p in packages if p not in [warehouse_to_shop, dc_to_home] if warehouse_to_shop and dc_to_home else packages]
             for pkg in remaining_packages:
                 action_route.append({"location": pkg["pickup"], "action": "pickup", "package_id": pkg["id"]})
                 action_route.append({"location": pkg["delivery"], "action": "deliver", "package_id": pkg["id"]})
@@ -855,10 +935,13 @@ def solve_tsp(start_location, locations):
             total_distance = sum(DISTANCES.get((route_path[i], route_path[i+1]), 
                                  DISTANCES.get((route_path[i+1], route_path[i]), 300)) 
                                  for i in range(len(route_path)-1))
+            
+            diagnostics.log_event("Route Minimal Fallback", f"Created minimal valid route with distance {total_distance}")
     
     except Exception as e:
         # If any error occurs, use a guaranteed valid minimal route
         st.warning(f"Routing calculation encountered an error: {e}. Using minimal valid route.")
+        diagnostics.log_error("TSP Solver Exception", str(e))
         
         # Create a minimal valid route that satisfies constraints
         route_path = ["Warehouse", "Distribution Center", "Shop", "Home"]
@@ -901,6 +984,8 @@ def solve_tsp(start_location, locations):
         total_distance = sum(DISTANCES.get((route_path[i], route_path[i+1]), 
                              DISTANCES.get((route_path[i+1], route_path[i]), 300)) 
                              for i in range(len(route_path)-1))
+        
+        diagnostics.log_event("Route Exception Fallback", f"Created exception fallback route with distance {total_distance}")
     
     # Additional sanity check on the returned distance
     if total_distance < 100:
@@ -922,13 +1007,99 @@ def solve_tsp(start_location, locations):
         # Use the recalculated distance if it's more reasonable
         if recalculated_distance >= 100:
             total_distance = recalculated_distance
+            diagnostics.log_event("Distance Correction", f"Using recalculated distance: {total_distance}")
         else:
             # As a last resort, set a minimum reasonable distance based on the defined distances
             from config import DISTANCES
             min_reasonable_distance = min([d for d in DISTANCES.values() if d > 0]) * (len(locations) - 1)
             total_distance = max(total_distance, min_reasonable_distance, 100)
+            diagnostics.log_event("Distance Correction", f"Using minimum reasonable distance: {total_distance}")
+    
+    # Log the final route to diagnostics
+    diagnostics.log_optimal_route_data(action_route, route_path, total_distance)
     
     return action_route, route_path, total_distance
+
+@diagnostics.catch_and_log_exceptions
+def validate_optimal_route(route, path, packages):
+    """
+    Validates that the optimal route satisfies all requirements:
+    - Handles all packages
+    - Satisfies all constraints
+    - Forms a valid path with no impossible segments
+    - Correctly handles detours
+    
+    Returns True if valid, False otherwise
+    """
+    if not route or not path:
+        diagnostics.log_error("Route Validation", "Empty route or path")
+        return False
+    
+    # Collect all package IDs that are handled in the route
+    handled_packages = set()
+    carrying = None
+    
+    for action in route:
+        if action["action"] == "pickup":
+            if carrying is not None:
+                diagnostics.log_error("Route Validation", "Multiple packages carried simultaneously")
+                return False  # Can't carry more than one package
+            carrying = action["package_id"]
+            handled_packages.add(action["package_id"])
+        elif action["action"] == "deliver":
+            if carrying != action["package_id"]:
+                diagnostics.log_error("Route Validation", "Attempted to deliver package not being carried")
+                return False  # Can't deliver what we're not carrying
+            carrying = None
+    
+    # All packages should be handled
+    if len(handled_packages) != len(packages):
+        diagnostics.log_error("Route Validation", f"Not all packages handled: {len(handled_packages)}/{len(packages)}")
+        return False
+    
+    # Check if path satisfies sequence constraints
+    if "Warehouse" in path and "Shop" in path:
+        f_idx = path.index("Warehouse")
+        s_idx = path.index("Shop")
+        if f_idx > s_idx:
+            diagnostics.log_error("Route Validation", "Constraint violation: Shop before Warehouse")
+            return False  # Warehouse must come before Shop
+    
+    if "Distribution Center" in path and "Home" in path:
+        d_idx = path.index("Distribution Center")
+        r_idx = path.index("Home")
+        if d_idx > r_idx:
+            diagnostics.log_error("Route Validation", "Constraint violation: Home before Distribution Center")
+            return False  # Distribution Center must come before Home
+    
+    # Check if all consecutive locations in the path are valid (considering detours)
+    for i in range(len(path) - 1):
+        # Rather than directly checking is_road_closed, use calculate_segment_path
+        # which accounts for detours
+        segment_path, segment_distance = calculate_segment_path(path[i], path[i+1])
+        if segment_path is None or segment_distance == float('inf'):
+            diagnostics.log_error("Route Validation", f"No valid path between {path[i]} and {path[i+1]}")
+            return False
+    
+    # If we passed all checks, the route is valid
+    return True
+
+# Add a helper function to explicitly check for and report closed roads in a path
+def check_closed_roads_in_path(path):
+    """
+    Check if a path contains segments that use closed roads.
+    Returns a list of problematic segments.
+    """
+    closed_road_segments = []
+    
+    for i in range(len(path) - 1):
+        if is_road_closed(path[i], path[i+1]):
+            closed_road_segments.append((path[i], path[i+1]))
+    
+    if closed_road_segments:
+        diagnostics.log_error("Path Validation", f"Path uses closed roads: {closed_road_segments}")
+        
+    return closed_road_segments
 
 def get_nearest_accessible_location(current_location):
     """Find the nearest location that can be reached from current location"""
@@ -971,73 +1142,3 @@ def suggest_next_location(current_location, visited_locations, packages):
     # Default to nearest accessible location if no specific action
     nearest = get_nearest_accessible_location(current_location)
     return nearest if nearest else current_location, "default"
-
-def validate_optimal_route(route, path, packages):
-    """
-    Validates that the optimal route satisfies all requirements:
-    - Handles all packages
-    - Satisfies all constraints
-    - Forms a valid path with no impossible segments
-    - Correctly handles detours
-    
-    Returns True if valid, False otherwise
-    """
-    if not route or not path:
-        return False
-    
-    # Collect all package IDs that are handled in the route
-    handled_packages = set()
-    carrying = None
-    
-    for action in route:
-        if action["action"] == "pickup":
-            if carrying is not None:
-                return False  # Can't carry more than one package
-            carrying = action["package_id"]
-            handled_packages.add(action["package_id"])
-        elif action["action"] == "deliver":
-            if carrying != action["package_id"]:
-                return False  # Can't deliver what we're not carrying
-            carrying = None
-    
-    # All packages should be handled
-    if len(handled_packages) != len(packages):
-        return False
-    
-    # Check if path satisfies sequence constraints
-    if "Warehouse" in path and "Shop" in path:
-        f_idx = path.index("Warehouse")
-        s_idx = path.index("Shop")
-        if f_idx > s_idx:
-            return False  # Warehouse must come before Shop
-    
-    if "Distribution Center" in path and "Home" in path:
-        d_idx = path.index("Distribution Center")
-        r_idx = path.index("Home")
-        if d_idx > r_idx:
-            return False  # Distribution Center must come before Home
-    
-    # Check if all consecutive locations in the path are valid (considering detours)
-    for i in range(len(path) - 1):
-        # Rather than directly checking is_road_closed, use calculate_segment_path
-        # which accounts for detours
-        segment_path, segment_distance = calculate_segment_path(path[i], path[i+1])
-        if segment_path is None or segment_distance == float('inf'):
-            return False
-    
-    # If we passed all checks, the route is valid
-    return True
-
-# Add a helper function to explicitly check for and report closed roads in a path
-def check_closed_roads_in_path(path):
-    """
-    Check if a path contains segments that use closed roads.
-    Returns a list of problematic segments.
-    """
-    closed_road_segments = []
-    
-    for i in range(len(path) - 1):
-        if is_road_closed(path[i], path[i+1]):
-            closed_road_segments.append((path[i], path[i+1]))
-    
-    return closed_road_segments
