@@ -363,6 +363,7 @@ st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe
 tab1, tab2, tab3, tab4 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics"])
 
 # Game Tab
+# Game Tab
 with tab1:
     col1, col2 = st.columns([2, 1])  # Left column for map, right for controls/info
     
@@ -458,20 +459,19 @@ with tab1:
                                 st.warning(f"⚠️ WARNING: {move['constraint_message']} This will reduce your final score.")
                                 st.warning("Do you still want to proceed?")
                                 
-                                proceed_col1, proceed_col2 = st.columns(2)
-                                with proceed_col1:
-                                    if st.button("Yes, proceed anyway", key=f"confirm_{location}", type="primary"):
-                                        result = st.session_state.game.move_to_location(location)
-                                        if result["success"]:
-                                            if "game_completed" in result and result["game_completed"]:
-                                                st.session_state.game_results = result["results"]
-                                                st.session_state.game = None
-                                            st.rerun()
-                                        else:
-                                            st.error(result["message"])
-                                with proceed_col2:
-                                    if st.button("No, cancel", key=f"cancel_{location}"):
+                                # Use direct buttons instead of nested columns
+                                if st.button("Yes, proceed anyway", key=f"confirm_{location}", type="primary"):
+                                    result = st.session_state.game.move_to_location(location)
+                                    if result["success"]:
+                                        if "game_completed" in result and result["game_completed"]:
+                                            st.session_state.game_results = result["results"]
+                                            st.session_state.game = None
                                         st.rerun()
+                                    else:
+                                        st.error(result["message"])
+                                
+                                if st.button("No, cancel", key=f"cancel_{location}"):
+                                    st.rerun()
                             else:
                                 # Regular move with no constraints
                                 result = st.session_state.game.move_to_location(location)
@@ -674,7 +674,8 @@ with tab1:
                     violation_info = ""
                     if violated_constraint:
                         violation_info = f" ⚠️ Violated constraint: {violated_constraint[0]} → {violated_constraint[1]}"
-                        st.markdown(f"**Step {i+1}:** {start} → {end} ({segment_distance} cm){violation_info}")
+                    
+                    st.markdown(f"**Step {i+1}:** {start} → {end} ({segment_distance} cm){violation_info}")
                 
                 st.metric("Total Distance", f"{total_distance:.1f} cm")
             
