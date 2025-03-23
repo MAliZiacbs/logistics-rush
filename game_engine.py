@@ -8,38 +8,38 @@ from route_optimizer import RouteOptimizer
 
 class LogisticsRushGame:
     def __init__(self, locations, road_segments, distances, difficulty=1):
-    """Initialize a new game with the given difficulty"""
-    self.difficulty = min(difficulty, 3)  # Cap at 3
-    self.start_location = "Warehouse"
-    
-    # Create the graph
-    self.graph = LogisticsGraph(locations, road_segments, distances)
-    
-    # Create the package manager
-    self.package_manager = PackageManager()
-    
-    # Create the constraints manager
-    self.constraints = ConstraintsManager()
-    
-    # Initialize game state
-    self.game_active = False
-    self.current_location = None
-    self.current_route = []
-    self.start_time = None
-    self.closed_roads = []
-    self.optimal_route = None
-    self.optimal_distance = 0
-    self.optimal_package_operations = []
-    
-    # Enhanced diagnostics
-    self.move_history = []
-    self.decision_logs = []
-    self.constraint_violations = []
-    
-    # Undo functionality
-    self.undo_available = False
-    self.undo_used = False
-    self.previous_state = None
+        """Initialize a new game with the given difficulty"""
+        self.difficulty = min(difficulty, 3)  # Cap at 3
+        self.start_location = "Warehouse"
+        
+        # Create the graph
+        self.graph = LogisticsGraph(locations, road_segments, distances)
+        
+        # Create the package manager
+        self.package_manager = PackageManager()
+        
+        # Create the constraints manager
+        self.constraints = ConstraintsManager()
+        
+        # Initialize game state
+        self.game_active = False
+        self.current_location = None
+        self.current_route = []
+        self.start_time = None
+        self.closed_roads = []
+        self.optimal_route = None
+        self.optimal_distance = 0
+        self.optimal_package_operations = []
+        
+        # Enhanced diagnostics
+        self.move_history = []
+        self.decision_logs = []
+        self.constraint_violations = []
+        
+        # Undo functionality
+        self.undo_available = False
+        self.undo_used = False
+        self.previous_state = None
     
     def start_game(self):
         """Start a new game with the current difficulty"""
@@ -79,101 +79,165 @@ class LogisticsRushGame:
         }
     
     def move_to_location(self, location):
-    """Move to a directly connected location"""
-    if not self.game_active:
-        return {"success": False, "message": "Game not active"}
+        """Move to a directly connected location"""
+        if not self.game_active:
+            return {"success": False, "message": "Game not active"}
         
-    # Log decision point
-    decision_point = {
-        "timestamp": time.time(),
-        "action": "move_attempt",
-        "from": self.current_location,
-        "to": location,
-        "current_route": self.current_route.copy()
-    }
-    
-    # Check if the location is directly connected
-    if not self.graph.is_directly_connected(self.current_location, location):
-        decision_point["result"] = "failed"
-        decision_point["reason"] = "not_directly_connected"
-        self.decision_logs.append(decision_point)
-        return {
-            "success": False, 
-            "message": f"Cannot move directly from {self.current_location} to {location}. Choose a connected location."
-        }
-    
-    # Get the distance for this move
-    distance = self.graph.get_edge_weight(self.current_location, location)
-    decision_point["distance"] = distance
-    
-    # Check if this move would violate constraints
-    temp_route = self.current_route + [location]
-    valid, message = self.constraints.validate_route(temp_route)
-    
-    decision_point["constraints_check"] = {
-        "valid": valid,
-        "message": message
-    }
-    
-    # If violating constraints, save current state for potential undo
-    if not valid and not self.undo_used:
-        self._save_state_for_undo()
-        self.undo_available = True
-        
-    if not valid:
-        self.constraint_violations.append({
+        # Log decision point
+        decision_point = {
             "timestamp": time.time(),
-            "current_route": self.current_route.copy(),
-            "attempted_location": location,
-            "violation_message": message
+            "action": "move_attempt",
+            "from": self.current_location,
+            "to": location,
+            "current_route": self.current_route.copy()
+        }
+        
+        # Check if the location is directly connected
+        if not self.graph.is_directly_connected(self.current_location, location):
+            decision_point["result"] = "failed"
+            decision_point["reason"] = "not_directly_connected"
+            self.decision_logs.append(decision_point)
+            return {
+                "success": False, 
+                "message": f"Cannot move directly from {self.current_location} to {location}. Choose a connected location."
+            }
+        
+        # Get the distance for this move
+        distance = self.graph.get_edge_weight(self.current_location, location)
+        decision_point["distance"] = distance
+        
+        # Check if this move would violate constraints
+        temp_route = self.current_route + [location]
+        valid, message = self.constraints.validate_route(temp_route)
+        
+        decision_point["constraints_check"] = {
+            "valid": valid,
+            "message": message
+        }
+        
+        # If violating constraints, save current state for potential undo
+        if not valid and not self.undo_used:
+            self._save_state_for_undo()
+            self.undo_available = True
+            
+        if not valid:
+            self.constraint_violations.append({
+                "timestamp": time.time(),
+                "current_route": self.current_route.copy(),
+                "attempted_location": location,
+                "violation_message": message
+            })
+            
+            decision_point["result"] = "constraint_violation"
+            self.decision_logs.append(decision_point)
+            
+            # Continue with the move despite constraint violation
+            warning_message = message
+        else:
+            warning_message = ""
+        
+        # Move is executing, update route and current location
+        self.current_route.append(location)
+        self.current_location = location
+        
+        decision_point["result"] = "success"
+        self.decision_logs.append(decision_point)
+        
+        # Record this move in history
+        self.move_history.append({
+            "timestamp": time.time(),
+            "from": self.current_route[-2],
+            "to": location,
+            "distance": distance
         })
         
-        decision_point["result"] = "constraint_violation"
-        self.decision_logs.append(decision_point)
+        # Check for automatic package delivery
+        result = {"success": True, "message": f"Moved to {location}"}
+        if warning_message:
+            result["message"] += f" WARNING: {warning_message}"
+            result["constraint_violated"] = True
         
-        # Continue with the move despite constraint violation
-        warning_message = message
-    else:
-        warning_message = ""
-    
-    # Move is executing, update route and current location
-    self.current_route.append(location)
-    self.current_location = location
-    
-    decision_point["result"] = "success"
-    self.decision_logs.append(decision_point)
-    
-    # Record this move in history
-    self.move_history.append({
-        "timestamp": time.time(),
-        "from": self.current_route[-2],
-        "to": location,
-        "distance": distance
-    })
-    
-    # Check for automatic package delivery
-    result = {"success": True, "message": f"Moved to {location}"}
-    if warning_message:
-        result["message"] += f" WARNING: {warning_message}"
-        result["constraint_violated"] = True
-    
-    if self.package_manager.carrying and self.package_manager.carrying.delivery == location:
-        success, deliver_msg = self.package_manager.deliver(location)
-        if success:
-            result["message"] += f". {deliver_msg}"
-    
-    # Check if game is complete
-    if self._check_game_completion():
-        game_results = self.end_game()
-        result["game_completed"] = True
-        result["results"] = game_results
+        if self.package_manager.carrying and self.package_manager.carrying.delivery == location:
+            success, deliver_msg = self.package_manager.deliver(location)
+            if success:
+                result["message"] += f". {deliver_msg}"
         
-    # Return available moves for the next step
-    result["available_moves"] = self.get_available_moves()
-    result["packages_here"] = self.package_manager.get_available_pickups(location)
-    result["undo_available"] = self.undo_available and not self.undo_used
+        # Check if game is complete
+        if self._check_game_completion():
+            game_results = self.end_game()
+            result["game_completed"] = True
+            result["results"] = game_results
+            
+        # Return available moves for the next step
+        result["available_moves"] = self.get_available_moves()
+        result["packages_here"] = self.package_manager.get_available_pickups(location)
+        result["undo_available"] = self.undo_available and not self.undo_used
+        
+        return result
     
-    return result
+    def _save_state_for_undo(self):
+        """Save the current game state for potential undo"""
+        self.previous_state = {
+            "current_location": self.current_location,
+            "current_route": self.current_route.copy(),
+            "packages": self.package_manager.get_package_info(),
+            "carrying": self.package_manager.carrying
+        }
+    
+    def undo_last_move(self):
+        """Undo the last move if it violated constraints and undo is available"""
+        if not self.game_active:
+            return {"success": False, "message": "Game not active"}
+        
+        if not self.undo_available or self.undo_used:
+            return {"success": False, "message": "Undo is not available"}
+        
+        # Log undo action
+        self.decision_logs.append({
+            "timestamp": time.time(),
+            "action": "undo_constraint_violation",
+            "from_location": self.current_location,
+            "to_location": self.previous_state["current_location"],
+            "previous_route": self.current_route.copy(),
+            "restored_route": self.previous_state["current_route"].copy()
+        })
+        
+        # Remove the last move from history
+        if self.move_history:
+            self.move_history.pop()
+        
+        # Restore saved state
+        self.current_location = self.previous_state["current_location"]
+        self.current_route = self.previous_state["current_route"].copy()
+        
+        # Restore package state if needed
+        if self.package_manager.carrying != self.previous_state["carrying"]:
+            # This is a simplified approach - in a real implementation you would need
+            # more detailed package state restoration
+            self.package_manager = PackageManager()
+            for pkg in self.previous_state["packages"]:
+                new_pkg = self.package_manager.add_package(pkg["id"], pkg["pickup"], pkg["delivery"])
+                new_pkg.status = pkg["status"]
+            
+            # Re-setup the carrying package if there was one
+            if self.previous_state["carrying"]:
+                pkg_id = self.previous_state["carrying"].id
+                for pkg in self.package_manager.packages:
+                    if pkg.id == pkg_id:
+                        self.package_manager.carrying = pkg
+                        break
+        
+        # Mark undo as used
+        self.undo_used = True
+        self.undo_available = False
+        
+        return {
+            "success": True,
+            "message": "Move undone. You've used your one-time undo. A penalty will be applied to your final score.",
+            "available_moves": self.get_available_moves(),
+            "packages_here": self.package_manager.get_available_pickups(self.current_location),
+            "undo_available": False
+        }
     
     def pickup_package(self, package_id):
         """Pick up a package at the current location"""
@@ -200,70 +264,6 @@ class LogisticsRushGame:
         result["available_moves"] = self.get_available_moves()
         
         return result
-
-    def _save_state_for_undo(self):
-    """Save the current game state for potential undo"""
-    self.previous_state = {
-        "current_location": self.current_location,
-        "current_route": self.current_route.copy(),
-        "packages": self.package_manager.get_package_info(),
-        "carrying": self.package_manager.carrying
-    }
-
-    def undo_last_move(self):
-    """Undo the last move if it violated constraints and undo is available"""
-    if not self.game_active:
-        return {"success": False, "message": "Game not active"}
-    
-    if not self.undo_available or self.undo_used:
-        return {"success": False, "message": "Undo is not available"}
-    
-    # Log undo action
-    self.decision_logs.append({
-        "timestamp": time.time(),
-        "action": "undo_constraint_violation",
-        "from_location": self.current_location,
-        "to_location": self.previous_state["current_location"],
-        "previous_route": self.current_route.copy(),
-        "restored_route": self.previous_state["current_route"].copy()
-    })
-    
-    # Remove the last move from history
-    if self.move_history:
-        self.move_history.pop()
-    
-    # Restore saved state
-    self.current_location = self.previous_state["current_location"]
-    self.current_route = self.previous_state["current_route"].copy()
-    
-    # Restore package state if needed
-    if self.package_manager.carrying != self.previous_state["carrying"]:
-        # This is a simplified approach - in a real implementation you would need
-        # more detailed package state restoration
-        self.package_manager = PackageManager()
-        for pkg in self.previous_state["packages"]:
-            new_pkg = self.package_manager.add_package(pkg["id"], pkg["pickup"], pkg["delivery"])
-            new_pkg.status = pkg["status"]
-        
-        # Re-setup the carrying package if there was one
-        if self.previous_state["carrying"]:
-            pkg_id = self.previous_state["carrying"].id
-            for pkg in self.package_manager.packages:
-                if pkg.id == pkg_id:
-                    self.package_manager.carrying = pkg
-                    break
-    
-    # Mark undo as used
-    self.undo_used = True
-    self.undo_available = False
-    
-    return {
-        "success": True,
-        "message": "Move undone. You've used your one-time undo. A penalty will be applied to your final score.",
-        "available_moves": self.get_available_moves(),
-        "packages_here": self.package_manager.get_available_pickups(self.current_location),
-        "undo_available": False
-    }
     
     def deliver_package(self):
         """Deliver the currently carried package"""
@@ -326,114 +326,113 @@ class LogisticsRushGame:
         return valid_moves
     
     def end_game(self):
-    """End the game and calculate results"""
-    if not self.game_active:
-        return {"success": False, "message": "Game not active"}
+        """End the game and calculate results"""
+        if not self.game_active:
+            return {"success": False, "message": "Game not active"}
             
-    self.game_active = False
-    game_time = time.time() - self.start_time
+        self.game_active = False
+        game_time = time.time() - self.start_time
+        
+        # Calculate player route distance - direct calculation since we now have explicit movements
+        player_distance = self.graph.calculate_route_distance(self.current_route)
+        
+        # Calculate efficiency
+        if player_distance <= self.optimal_distance:
+            # Player found a better route
+            efficiency = 100
+            better_route = True
+        else:
+            # Normal efficiency calculation
+            efficiency = min(100, int((self.optimal_distance / player_distance) * 100))
+            better_route = False
+        
+        # Calculate score components
+        weights = {"efficiency": 0.4, "delivery": 0.3, "constraints": 0.2, "time": 0.1}
+        
+        delivery_score = 100  # All packages must be delivered to complete
+        
+        # Apply constraint penalty if undo was used
+        constraints_score = 50 if self.undo_used else 100  # 50% penalty if undo was used
+        
+        # Time factor calculation (based on average expected time)
+        expected_time = (len(self.package_manager.packages) * 15) + (len(self.current_route) * 5)
+        time_factor = max(0, 100 - ((game_time / expected_time) * 50))  # 50% penalty for 2x expected time
+        
+        # Final score calculation
+        score = (
+            efficiency * weights["efficiency"] +
+            delivery_score * weights["delivery"] +
+            constraints_score * weights["constraints"] +
+            time_factor * weights["time"]
+        )
+        
+        score = min(100, max(0, int(score)))
+        
+        # Generate detailed diagnostics
+        diagnostics = {
+            "move_history": self.move_history,
+            "decision_logs": self.decision_logs,
+            "constraint_violations": self.constraint_violations,
+            "graph_state": self.graph.get_graph_state(),
+            "optimal_route_calculation": {
+                "route": self.optimal_route,
+                "distance": self.optimal_distance,
+                "operations": self.optimal_package_operations
+            },
+            "undo_used": self.undo_used
+        }
+        
+        return {
+            "time": game_time,
+            "player_route": self.current_route,
+            "player_distance": player_distance,
+            "optimal_route": self.optimal_route,
+            "optimal_distance": self.optimal_distance,
+            "efficiency": efficiency,
+            "found_better_route": better_route,
+            "score": score,
+            "difficulty": self.difficulty,
+            "closed_roads": self.closed_roads,
+            "packages": self.package_manager.get_package_info(),
+            "optimal_package_operations": self.optimal_package_operations,
+            "undo_used": self.undo_used,
+            "constraints_score": constraints_score,
+            "enhanced_diagnostics": diagnostics
+        }
     
-    # Calculate player route distance - direct calculation since we now have explicit movements
-    player_distance = self.graph.calculate_route_distance(self.current_route)
-    
-    # Calculate efficiency
-    if player_distance <= self.optimal_distance:
-        # Player found a better route
-        efficiency = 100
-        better_route = True
-    else:
-        # Normal efficiency calculation
-        efficiency = min(100, int((self.optimal_distance / player_distance) * 100))
-        better_route = False
-    
-    # Calculate score components
-    weights = {"efficiency": 0.4, "delivery": 0.3, "constraints": 0.2, "time": 0.1}
-    
-    delivery_score = 100  # All packages must be delivered to complete
-    
-    # Apply constraint penalty if undo was used
-    constraints_score = 50 if self.undo_used else 100  # 50% penalty if undo was used
-    
-    # Time factor calculation (based on average expected time)
-    expected_time = (len(self.package_manager.packages) * 15) + (len(self.current_route) * 5)
-    time_factor = max(0, 100 - ((game_time / expected_time) * 50))  # 50% penalty for 2x expected time
-    
-    # Final score calculation
-    score = (
-        efficiency * weights["efficiency"] +
-        delivery_score * weights["delivery"] +
-        constraints_score * weights["constraints"] +
-        time_factor * weights["time"]
-    )
-    
-    score = min(100, max(0, int(score)))
-    
-    # Generate detailed diagnostics
-    diagnostics = {
-        "move_history": self.move_history,
-        "decision_logs": self.decision_logs,
-        "constraint_violations": self.constraint_violations,
-        "graph_state": self.graph.get_graph_state(),
-        "optimal_route_calculation": {
-            "route": self.optimal_route,
-            "distance": self.optimal_distance,
-            "operations": self.optimal_package_operations
-        },
-        "undo_used": self.undo_used
-    }
-    
-    return {
-        "time": game_time,
-        "player_route": self.current_route,
-        "player_distance": player_distance,
-        "optimal_route": self.optimal_route,
-        "optimal_distance": self.optimal_distance,
-        "efficiency": efficiency,
-        "found_better_route": better_route,
-        "score": score,
-        "difficulty": self.difficulty,
-        "closed_roads": self.closed_roads,
-        "packages": self.package_manager.get_package_info(),
-        "optimal_package_operations": self.optimal_package_operations,
-        "undo_used": self.undo_used,
-        "constraints_score": constraints_score,
-        "enhanced_diagnostics": diagnostics
-    }
-
-
     def get_game_status(self):
-    """Get current game status"""
-    if not self.game_active:
-        return {"active": False}
+        """Get current game status"""
+        if not self.game_active:
+            return {"active": False}
             
-    game_time = time.time() - self.start_time
-    
-    # Calculate progress
-    delivered = len(self.package_manager.get_delivered_packages())
-    total_packages = len(self.package_manager.packages)
-    unique_locations = len(set(self.current_route))
-    total_locations = len(self.graph.locations)
-    
-    # Location progress and package progress
-    loc_progress = min(100, int((unique_locations / total_locations) * 100))
-    pkg_progress = min(100, int((delivered / total_packages) * 100))
-    
-    # Combined progress
-    combined_progress = (loc_progress + pkg_progress) // 2
-    
-    return {
-        "active": True,
-        "time": game_time,
-        "current_location": self.current_location,
-        "locations_visited": unique_locations,
-        "total_locations": total_locations,
-        "packages_delivered": delivered,
-        "total_packages": total_packages,
-        "carrying_package": self.package_manager.carrying.id if self.package_manager.carrying else None,
-        "progress": combined_progress,
-        "available_moves": self.get_available_moves(),
-        "undo_available": self.undo_available and not self.undo_used
-    }
+        game_time = time.time() - self.start_time
+        
+        # Calculate progress
+        delivered = len(self.package_manager.get_delivered_packages())
+        total_packages = len(self.package_manager.packages)
+        unique_locations = len(set(self.current_route))
+        total_locations = len(self.graph.locations)
+        
+        # Location progress and package progress
+        loc_progress = min(100, int((unique_locations / total_locations) * 100))
+        pkg_progress = min(100, int((delivered / total_packages) * 100))
+        
+        # Combined progress
+        combined_progress = (loc_progress + pkg_progress) // 2
+        
+        return {
+            "active": True,
+            "time": game_time,
+            "current_location": self.current_location,
+            "locations_visited": unique_locations,
+            "total_locations": total_locations,
+            "packages_delivered": delivered,
+            "total_packages": total_packages,
+            "carrying_package": self.package_manager.carrying.id if self.package_manager.carrying else None,
+            "progress": combined_progress,
+            "available_moves": self.get_available_moves(),
+            "undo_available": self.undo_available and not self.undo_used
+        }
     
     def _generate_packages(self):
         """Generate the standard packages for the game"""
