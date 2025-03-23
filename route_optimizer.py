@@ -1,159 +1,156 @@
-from constraints_manager import ConstraintsManager
-
 class RouteOptimizer:
-    def __init__(self, logistics_graph):
-        """Initialize with a LogisticsGraph instance"""
+    def __init__(self, logistics_graph, constraints_manager=None):
+        """Initialize with a LogisticsGraph instance and optional ConstraintsManager"""
         self.graph = logistics_graph
-        self.constraints = ConstraintsManager()
+        self.constraints = constraints_manager
     
     def find_optimal_route(self, start_location, required_locations, packages):
-        """Find the optimal route using only available roads and respecting constraints"""
-        # First, let's make sure our starting location is included
-        if start_location not in required_locations:
-            required_locations = [start_location] + [loc for loc in required_locations if loc != start_location]
+        """Find the globally optimal route by evaluating all valid package orderings"""
+        # Generate all possible package handling orders
+        packages_list = list(packages)
+        all_package_orders = self._generate_all_package_orders(packages_list)
         
-        # Create a route that prioritizes package operations
+        best_route = None
+        best_distance = float('inf')
+        best_operations = None
+        
+        # Try each possible package order
+        for package_order in all_package_orders:
+            route, distance, operations = self._evaluate_package_order(
+                start_location, required_locations, package_order)
+            
+            if route and distance < best_distance:
+                best_route = route
+                best_distance = distance
+                best_operations = operations
+        
+        # If we couldn't find any valid route, return empty results
+        if not best_route:
+            return [start_location], float('inf'), []
+            
+        return best_route, best_distance, best_operations
+
+    def _generate_all_package_orders(self, packages):
+        """Generate all possible orders for handling packages"""
+        # For 3 packages, we have 6 possible orderings (3!)
+        if not packages:
+            return [[]]
+        
+        result = []
+        for i, pkg in enumerate(packages):
+            rest = packages[:i] + packages[i+1:]
+            for order in self._generate_all_package_orders(rest):
+                result.append([pkg] + order)
+        
+        return result
+
+    def _evaluate_package_order(self, start_location, required_locations, package_order):
+        """Evaluate a specific package handling order"""
         route = [start_location]
         current_location = start_location
         package_operations = []
+        total_distance = 0
         
-        # Keep track of which packages are handled
-        handled_packages = set()
-        
-        # First pass: handle critical packages that match constraints
-        for package in packages:
-            # Skip if already handled
-            if package.id in handled_packages:
-                continue
-                
-            # Special case: Warehouse → Shop package (constraint)
-            if package.pickup == "Warehouse" and package.delivery == "Shop":
-                # Find the shortest valid path for pickup to delivery
-                pickup_path, pickup_distance = self._find_path_respecting_constraints(
-                    current_location, package.pickup, route
-                )
-                
-                if pickup_path:
-                    delivery_path, delivery_distance = self._find_path_respecting_constraints(
-                        package.pickup, package.delivery, route + pickup_path[1:]
-                    )
-                    
-                    if delivery_path:
-                        # Add the pickup path (excluding start)
-                        if current_location != package.pickup:
-                            route.extend(pickup_path[1:])
-                            current_location = package.pickup
-                            
-                        package_operations.append((package.pickup, "pickup", package.id))
-                        
-                        # Add the delivery path (excluding start)
-                        route.extend(delivery_path[1:])
-                        package_operations.append((package.delivery, "delivery", package.id))
-                        
-                        # Update current location and mark package as handled
-                        current_location = package.delivery
-                        handled_packages.add(package.id)
+        # Process each package in the given order
+        for package in package_order:
+            # Find path to pickup
+            pickup_path, pickup_distance = self._find_constraint_respecting_path(
+                current_location, package.pickup, route, None)
             
-            # Special case: Distribution Center → Home package (constraint)
-            elif package.pickup == "Distribution Center" and package.delivery == "Home":
-                # Find the shortest valid path for pickup to delivery
-                pickup_path, pickup_distance = self._find_path_respecting_constraints(
-                    current_location, package.pickup, route
-                )
-                
-                if pickup_path:
-                    delivery_path, delivery_distance = self._find_path_respecting_constraints(
-                        package.pickup, package.delivery, route + pickup_path[1:]
-                    )
-                    
-                    if delivery_path:
-                        # Add the pickup path (excluding start)
-                        if current_location != package.pickup:
-                            route.extend(pickup_path[1:])
-                            current_location = package.pickup
-                            
-                        package_operations.append((package.pickup, "pickup", package.id))
-                        
-                        # Add the delivery path (excluding start)
-                        route.extend(delivery_path[1:])
-                        package_operations.append((package.delivery, "delivery", package.id))
-                        
-                        # Update current location and mark package as handled
-                        current_location = package.delivery
-                        handled_packages.add(package.id)
-        
-        # Second pass: handle remaining packages
-        for package in packages:
-            # Skip if already handled
-            if package.id in handled_packages:
-                continue
-                
-            # Find the shortest valid path for pickup to delivery
-            pickup_path, pickup_distance = self._find_path_respecting_constraints(
-                current_location, package.pickup, route
-            )
+            if not pickup_path:
+                return None, float('inf'), None  # Invalid order
             
-            if pickup_path:
-                # Add the pickup path (excluding start)
-                if current_location != package.pickup:
-                    route.extend(pickup_path[1:])
-                    current_location = package.pickup
-                
-                package_operations.append((package.pickup, "pickup", package.id))
-                
-                # Find the shortest valid path for delivery
-                delivery_path, delivery_distance = self._find_path_respecting_constraints(
-                    current_location, package.delivery, route
-                )
-                
-                if delivery_path:
-                    # Add the delivery path (excluding start)
-                    route.extend(delivery_path[1:])
-                    package_operations.append((package.delivery, "delivery", package.id))
-                    
-                    # Update current location and mark package as handled
-                    current_location = package.delivery
-                    handled_packages.add(package.id)
+            # Add pickup path (excluding start if it's the same as current)
+            if current_location != package.pickup:
+                route.extend(pickup_path[1:])
+                total_distance += pickup_distance
+                current_location = package.pickup
+            
+            package_operations.append((package.pickup, "pickup", package.id))
+            
+            # Find path to delivery
+            delivery_path, delivery_distance = self._find_constraint_respecting_path(
+                current_location, package.delivery, route, package)
+            
+            if not delivery_path:
+                return None, float('inf'), None  # Invalid order
+            
+            # Add delivery path
+            route.extend(delivery_path[1:])
+            total_distance += delivery_distance
+            current_location = package.delivery
+            
+            package_operations.append((package.delivery, "delivery", package.id))
         
-        # Third pass: make sure we've visited all required locations
+        # Ensure all required locations are visited
         for location in required_locations:
             if location not in route:
-                # Find the shortest valid path to this location
-                path, _ = self._find_path_respecting_constraints(
-                    current_location, location, route
-                )
+                path, distance = self._find_constraint_respecting_path(
+                    current_location, location, route, None)
                 
                 if path:
-                    # Add the path (excluding start)
                     route.extend(path[1:])
+                    total_distance += distance
                     current_location = location
         
-        # Calculate the total distance of this route
-        total_distance = self.graph.calculate_route_distance(route)
-            
         return route, total_distance, package_operations
     
-    def _find_path_respecting_constraints(self, start, end, current_route):
-        """Find the shortest path that respects constraints when added to current route"""
-        # Get the shortest path
-        path, distance = self.graph.find_shortest_path(start, end)
+    def _find_constraint_respecting_path(self, start, end, current_route, carrying_package=None):
+        """
+        Find a path from start to end that respects all constraints.
         
-        if not path:
-            return None, float('inf')
-        
-        # Check if adding this path would violate constraints
-        test_route = current_route.copy()
-        # Add each step of the path (excluding start if it's already the last item in route)
-        if test_route and test_route[-1] == path[0]:
-            test_route.extend(path[1:])
-        else:
-            test_route.extend(path)
-            
-        valid, _ = self.constraints.validate_route(test_route)
-        
-        if valid:
+        Uses a modified breadth-first search to find the shortest path that
+        satisfies all constraints.
+        """
+        # If no constraints or start and end are the same, use simple path
+        if (not self.constraints or not self.constraints.get_active_constraints()) or start == end:
+            path, distance = self.graph.find_shortest_path(start, end)
             return path, distance
         
-        # If invalid, we need to find an alternative path
-        # This could be quite complex - for simplicity, we'll return None
+        # Use breadth-first search to find a constraint-respecting path
+        visited = set()
+        queue = [(start, [start], 0)]  # (current, path, distance)
+        
+        while queue:
+            current, path, distance = queue.pop(0)
+            
+            if current == end:
+                # Found a path to the destination
+                return path, distance
+            
+            if current in visited:
+                continue
+                
+            visited.add(current)
+            
+            # Get all neighbors
+            for neighbor in self.graph.get_connected_locations(current):
+                if neighbor in visited:
+                    continue
+                    
+                # Check if adding this step would violate constraints
+                new_path = path + [neighbor]
+                test_route = current_route.copy()
+                
+                # If the start of new_path is the same as the end of test_route,
+                # avoid duplicating the location
+                if test_route and test_route[-1] == new_path[0]:
+                    test_route.extend(new_path[1:])
+                else:
+                    test_route.extend(new_path[1:])
+                
+                # Check if this route satisfies constraints
+                valid, _, _ = self.constraints.validate_route(test_route)
+                
+                if valid:
+                    # Calculate the new distance
+                    edge_distance = self.graph.get_edge_weight(current, neighbor)
+                    new_distance = distance + edge_distance
+                    
+                    # Add to queue, sorted by distance (makes it more like Dijkstra's)
+                    queue.append((neighbor, new_path, new_distance))
+                    # Sort queue by distance for better efficiency
+                    queue.sort(key=lambda x: x[2])
+        
+        # If we reach here, no valid path was found
         return None, float('inf')

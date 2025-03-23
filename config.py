@@ -28,6 +28,16 @@ DISTANCES = {
     ("Shop", "Home"): 302,
 }
 
+# Constraints based on difficulty levels
+DIFFICULTY_CONSTRAINTS = {
+    1: [],  # Easy: No constraints
+    2: [("Warehouse", "Shop")],  # Medium: One constraint
+    3: [("Warehouse", "Shop"), ("Distribution Center", "Home")]  # Hard: Both constraints
+}
+
+# Penalty for constraint violations (percentage of constraints score component)
+CONSTRAINT_VIOLATION_PENALTY = 25  # 25% penalty per violation
+
 # Game modes with clear descriptions - unchanged
 GAME_MODES = {
     "Logistics Challenge": {
@@ -36,7 +46,7 @@ GAME_MODES = {
         1. Start at the Warehouse
         2. Navigate through the network with random road closures
         3. Pick up and deliver packages along your route
-        4. Follow sequence constraints (Warehouse before Shop, Distribution Center before Home)
+        4. Follow sequence constraints based on difficulty level
         5. Complete your mission as efficiently as possible
         
         Your score depends on efficiency (40%), successful deliveries (30%), 
@@ -165,28 +175,12 @@ STYLES = """
         font-weight: bold;
         color: #1a56db;
     }
+    .constraint-warning {
+        background-color: #FECACA;
+        border-left: 4px solid #DC2626;
+        padding: 10px;
+        margin-bottom: 12px;
+        border-radius: 4px;
+    }
 </style>
 """
-
-# Centralized constraint checking function - unchanged
-def check_constraints(route):
-    """
-    Check if a route follows the game's constraints.
-
-    Returns True if constraints are met, False otherwise.
-    """
-    # Warehouse must come before Shop
-    if "Warehouse" in route and "Shop" in route:
-        f_idx = route.index("Warehouse")
-        s_idx = route.index("Shop")
-        if f_idx > s_idx:
-            return False
-            
-    # Distribution Center must come before Home
-    if "Distribution Center" in route and "Home" in route:
-        d_idx = route.index("Distribution Center")
-        r_idx = route.index("Home")
-        if d_idx > r_idx:
-            return False
-            
-    return True

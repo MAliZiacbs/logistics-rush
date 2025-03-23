@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from io import StringIO
 
 # Import our new modules
-from config import LOCATIONS, ROAD_SEGMENTS, DISTANCES, STYLES
+from config import LOCATIONS, ROAD_SEGMENTS, DISTANCES, STYLES, DIFFICULTY_CONSTRAINTS
 from logistics_graph import LogisticsGraph
 from package_manager import PackageManager
 from constraints_manager import ConstraintsManager
@@ -83,7 +83,7 @@ def draw_graph(graph, closed_roads=None):
     st.pyplot(fig)
 
 def save_diagnostics(data):
-    """Save diagnostic data to session state history"""
+    """Save diagnostic data to session state history with enhanced constraint tracking"""
     if isinstance(data, LogisticsRushGame):
         # Active game - extract data
         diag_data = {
@@ -100,7 +100,12 @@ def save_diagnostics(data):
                     "delivery": p.delivery,
                     "status": p.status
                 } for p in data.package_manager.packages
-            ]
+            ],
+            "constraint_info": {
+                "active_constraints": data.constraints.get_active_constraints(),
+                "violated_constraints": list(data.violated_constraints),
+                "constraint_violations": data.constraint_violations
+            }
         }
     else:
         # Completed game - data is already a dict
@@ -133,6 +138,13 @@ def add_diagnostics_tab():
                     
                     closed_roads_str = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in data.closed_roads])
                     st.text_area("Road Closures", closed_roads_str, height=100, disabled=True)
+                    
+                    # Show active constraints based on difficulty
+                    active_constraints = data.constraints.get_active_constraints()
+                    if active_constraints:
+                        st.subheader("Active Constraints")
+                        for constraint in active_constraints:
+                            st.info(f"{constraint[0]} → {constraint[1]}")
                 else:
                     # For completed game
                     difficulty = "Easy" if data['difficulty'] == 1 else "Medium" if data['difficulty'] == 2 else "Hard"
@@ -140,6 +152,12 @@ def add_diagnostics_tab():
                     
                     closed_roads_str = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in data['closed_roads']])
                     st.text_area("Road Closures", closed_roads_str, height=100, disabled=True)
+                    
+                    # Show active constraints from completed game
+                    if 'active_constraints' in data:
+                        st.subheader("Active Constraints")
+                        for constraint in data['active_constraints']:
+                            st.info(f"{constraint[0]} → {constraint[1]}")
             
             with game_info_col2:
                 if hasattr(data, 'package_manager'):
@@ -149,6 +167,12 @@ def add_diagnostics_tab():
                         for p in data.package_manager.packages
                     ])
                     st.text_area("Packages", packages_info, height=150, disabled=True)
+                    
+                    # Show constraint violations
+                    if hasattr(data, 'violated_constraints') and data.violated_constraints:
+                        st.subheader("Constraint Violations")
+                        for constraint in data.violated_constraints:
+                            st.error(f"{constraint[0]} → {constraint[1]} (Violated!)")
                 elif 'packages' in data:
                     # For completed game
                     packages_info = "\n".join([
@@ -156,6 +180,12 @@ def add_diagnostics_tab():
                         for p in data['packages']
                     ])
                     st.text_area("Packages", packages_info, height=150, disabled=True)
+                    
+                    # Show constraint violations from completed game
+                    if 'violated_constraints' in data and data['violated_constraints']:
+                        st.subheader("Constraint Violations")
+                        for constraint in data['violated_constraints']:
+                            st.error(f"{constraint[0]} → {constraint[1]} (Violated!)")
             
             # Route analysis
             st.markdown("### Route Analysis")
@@ -179,7 +209,10 @@ def add_diagnostics_tab():
                         if hasattr(data, 'move_history') and data.move_history:
                             with st.expander("Move History"):
                                 for i, move in enumerate(data.move_history):
-                                    st.markdown(f"**Move {i+1}:** {move.get('from', 'Start')} → {move.get('to', 'Unknown')} ({move.get('distance', 0)} cm)")
+                                    violation_info = ""
+                                    if move.get('violated_constraint'):
+                                        violation_info = f" ⚠️ Violated: {move['violated_constraint'][0]} → {move['violated_constraint'][1]}"
+                                    st.markdown(f"**Move {i+1}:** {move.get('from', 'Start')} → {move.get('to', 'Unknown')} ({move.get('distance', 0)} cm){violation_info}")
                         
                 elif 'player_route' in data:
                     # For completed game
@@ -191,7 +224,10 @@ def add_diagnostics_tab():
                     if 'enhanced_diagnostics' in data and 'move_history' in data['enhanced_diagnostics']:
                         with st.expander("Move History"):
                             for i, move in enumerate(data['enhanced_diagnostics']['move_history']):
-                                st.markdown(f"**Move {i+1}:** {move.get('from', 'Start')} → {move.get('to', 'Unknown')} ({move.get('distance', 0)} cm)")
+                                violation_info = ""
+                                if move.get('violated_constraint'):
+                                    violation_info = f" ⚠️ Violated: {move['violated_constraint'][0]} → {move['violated_constraint'][1]}"
+                                st.markdown(f"**Move {i+1}:** {move.get('from', 'Start')} → {move.get('to', 'Unknown')} ({move.get('distance', 0)} cm){violation_info}")
             
             with route_col2:
                 st.markdown("**Optimal Route:**")
@@ -207,6 +243,46 @@ def add_diagnostics_tab():
                     optimal_route = data['optimal_route']
                     st.code(" → ".join(optimal_route))
                     st.metric("Optimal Distance", f"{data['optimal_distance']:.1f} cm")
+            
+            # Constraints Analysis
+            if hasattr(data, 'constraints') or 'active_constraints' in data:
+                st.markdown("### Constraints Analysis")
+                
+                # Get active constraints
+                active_constraints = []
+                if hasattr(data, 'constraints'):
+                    active_constraints = data.constraints.get_active_constraints()
+                elif 'active_constraints' in data:
+                    active_constraints = data['active_constraints']
+                
+                # Get violated constraints
+                violated_constraints = []
+                if hasattr(data, 'violated_constraints'):
+                    violated_constraints = list(data.violated_constraints)
+                elif 'violated_constraints' in data:
+                    violated_constraints = data['violated_constraints']
+                
+                # Calculate number of constraints based on difficulty
+                if hasattr(data, 'difficulty'):
+                    difficulty = data.difficulty
+                else:
+                    difficulty = data.get('difficulty', 1)
+                    
+                total_constraints = len(DIFFICULTY_CONSTRAINTS.get(difficulty, []))
+                
+                # Display constraint compliance stats
+                st.metric("Constraints Violated", f"{len(violated_constraints)}/{total_constraints}")
+                
+                if active_constraints:
+                    st.subheader("Active Constraints")
+                    for constraint in active_constraints:
+                        is_violated = constraint in violated_constraints
+                        if is_violated:
+                            st.markdown(f"❌ **{constraint[0]} → {constraint[1]}** (Violated)")
+                        else:
+                            st.markdown(f"✅ **{constraint[0]} → {constraint[1]}** (Respected)")
+                else:
+                    st.info("No active constraints for this difficulty level.")
             
             # Network Graph
             st.markdown("### Network Graph")
@@ -233,9 +309,9 @@ def add_diagnostics_tab():
                 st.markdown("#### Visual Network")
                 draw_graph(data.graph.graph, data.closed_roads)
                 
-            elif 'enhanced_diagnostics' in data and 'final_graph_state' in data['enhanced_diagnostics']:
+            elif 'enhanced_diagnostics' in data and 'graph_state' in data['enhanced_diagnostics']:
                 # For completed game, visualize based on final state
-                g_state = data['enhanced_diagnostics']['final_graph_state']
+                g_state = data['enhanced_diagnostics']['graph_state']
                 
                 st.markdown("#### Connectivity Analysis")
                 # Display graph state as table
@@ -287,7 +363,6 @@ st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe
 tab1, tab2, tab3, tab4 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics"])
 
 # Game Tab
-# Game Tab
 with tab1:
     col1, col2 = st.columns([2, 1])  # Left column for map, right for controls/info
     
@@ -336,6 +411,22 @@ with tab1:
             current_location = st.session_state.game.current_location
             st.info(f"Current Location: {current_location}")
             
+            # Show active constraints based on difficulty
+            active_constraints = st.session_state.game.constraints.get_active_constraints()
+            if active_constraints:
+                st.subheader("Active Constraints")
+                for constraint in active_constraints:
+                    st.info(f"{constraint[0]} must be visited before {constraint[1]}")
+            
+            # Show constraint violations
+            violated_constraints = st.session_state.game.violated_constraints
+            if violated_constraints:
+                st.subheader("⚠️ Constraint Violations")
+                for constraint in violated_constraints:
+                    st.markdown(f'<div class="constraint-warning">{constraint[0]} must be visited before {constraint[1]} - Violated!</div>', unsafe_allow_html=True)
+                
+                st.warning("Constraint violations will reduce your final score.")
+            
             # Movement buttons
             available_moves = st.session_state.game.get_available_moves()
             
@@ -357,39 +448,44 @@ with tab1:
                         if has_packages:
                             button_label += " 📦"
                         
+                        # Add warning indicator for constraint violations
+                        if move.get("violates_constraint", False):
+                            button_label += " ⚠️"
+                        
                         if st.button(button_label, key=f"move_{location}", use_container_width=True):
-                            result = st.session_state.game.move_to_location(location)
-                            if result["success"]:
-                                if "constraint_violated" in result and result["constraint_violated"]:
-                                    st.warning(result["message"])
-                                if "game_completed" in result and result["game_completed"]:
-                                    st.session_state.game_results = result["results"]
-                                    st.session_state.game = None
-                                st.rerun()
+                            # Show warning if this move would violate a constraint
+                            if move.get("violates_constraint", False):
+                                st.warning(f"⚠️ WARNING: {move['constraint_message']} This will reduce your final score.")
+                                st.warning("Do you still want to proceed?")
+                                
+                                proceed_col1, proceed_col2 = st.columns(2)
+                                with proceed_col1:
+                                    if st.button("Yes, proceed anyway", key=f"confirm_{location}", type="primary"):
+                                        result = st.session_state.game.move_to_location(location)
+                                        if result["success"]:
+                                            if "game_completed" in result and result["game_completed"]:
+                                                st.session_state.game_results = result["results"]
+                                                st.session_state.game = None
+                                            st.rerun()
+                                        else:
+                                            st.error(result["message"])
+                                with proceed_col2:
+                                    if st.button("No, cancel", key=f"cancel_{location}"):
+                                        st.rerun()
                             else:
-                                st.error(result["message"])
+                                # Regular move with no constraints
+                                result = st.session_state.game.move_to_location(location)
+                                if result["success"]:
+                                    if "constraint_violated" in result and result["constraint_violated"]:
+                                        st.warning(result["message"])
+                                    if "game_completed" in result and result["game_completed"]:
+                                        st.session_state.game_results = result["results"]
+                                        st.session_state.game = None
+                                    st.rerun()
+                                else:
+                                    st.error(result["message"])
             else:
                 st.warning("No available moves from this location. You may have reached a dead end!")
-            
-            # Add Undo button if available
-            if st.session_state.game and st.session_state.game.game_active and st.session_state.game.undo_available and not st.session_state.game.undo_used:
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("⚠️ Constraint Violation Detected")
-                st.warning("You have made a move that violates game constraints. This may make it impossible to complete some deliveries.")
-                
-                if st.button("↩️ Undo Last Move (One-time use, -50% constraint score)", 
-                            key="undo_button", 
-                            type="primary", 
-                            use_container_width=True):
-                    result = st.session_state.game.undo_last_move()
-                    if result["success"]:
-                        st.success(result["message"])
-                        st.rerun()
-                    else:
-                        st.error(result["message"])
-                
-                st.info("Note: You can only undo once per game. A penalty will be applied to your final score.")
-                st.markdown('</div>', unsafe_allow_html=True)
             
             # Package Pickup/Delivery Actions
             if st.session_state.game.package_manager.carrying:
@@ -469,13 +565,22 @@ with tab1:
                 
                 # Constraints info
                 st.markdown('<div class="constraints-info">', unsafe_allow_html=True)
+                
+                # Show constraints based on difficulty
+                active_constraints = game_status.get('active_constraints', [])
                 st.markdown("🔄 **Constraints:**")
-                st.markdown("• Warehouse → Shop")
-                st.markdown("• Distribution Center → Home")
+                
+                if active_constraints:
+                    for constraint in active_constraints:
+                        st.markdown(f"• {constraint[0]} → {constraint[1]}")
+                else:
+                    st.markdown("• No ordering constraints in Easy mode")
+                
                 st.markdown("• One package at a time")
                 
                 # Difficulty
-                difficulty = "Easy" if len(st.session_state.game.closed_roads) == 1 else "Medium" if len(st.session_state.game.closed_roads) == 2 else "Hard"
+                difficulty_names = {1: "Easy", 2: "Medium", 3: "Hard"}
+                difficulty = difficulty_names.get(st.session_state.game.difficulty, "Easy")
                 st.markdown(f"• **Difficulty:** {difficulty} ({len(st.session_state.game.closed_roads)} closure{'s' if len(st.session_state.game.closed_roads) > 1 else ''})")
                 
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -520,23 +625,28 @@ with tab1:
                 st.metric("Efficiency", f"{results['efficiency']}%")
                 st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
             
-            # Display constraint penalty if undo was used
-            if results.get('undo_used', False):
-                with st.expander("Score Breakdown", expanded=True):
-                    st.markdown("### Score Components")
-                    st.markdown(f"- **Efficiency (40%)**: {results['efficiency']}%")
-                    st.markdown(f"- **Delivery (30%)**: 100%")
-                    st.markdown(f"- **Constraints (20%)**: {results['constraints_score']}% (Penalty applied for using undo)")
+            # Display constraint violations if any occurred
+            if results.get('active_constraints') and results.get('violated_constraints'):
+                violated_count = len(results.get('violated_constraints', []))
+                if violated_count > 0:
+                    st.warning(f"You violated {violated_count} constraint(s), reducing your score.")
                     
-                    # Calculate time score from results
-                    time_score = results['score'] - (
-                        (results['efficiency'] * 0.4) + 
-                        (100 * 0.3) + 
-                        (results['constraints_score'] * 0.2)
-                    ) / 0.1
-                    st.markdown(f"- **Time (10%)**: {int(time_score)}%")
-                    
-                    st.info("You used your one-time undo after violating a constraint. This resulted in a 50% penalty to your constraints score.")
+                    with st.expander("Score Breakdown"):
+                        st.markdown("### Score Components")
+                        st.markdown(f"- **Efficiency (40%)**: {results['efficiency']}%")
+                        st.markdown(f"- **Delivery (30%)**: 100%")
+                        st.markdown(f"- **Constraints (20%)**: {results['constraints_score']}% (Penalty for {violated_count} violation(s))")
+                        
+                        # Calculate time score from results
+                        time_score = results['score'] - (
+                            (results['efficiency'] * 0.4) + 
+                            (100 * 0.3) + 
+                            (results['constraints_score'] * 0.2)
+                        ) / 0.1
+                        st.markdown(f"- **Time (10%)**: {int(time_score)}%")
+                        
+                        for constraint in results.get('violated_constraints', []):
+                            st.error(f"Violated: {constraint[0]} must be visited before {constraint[1]}")
             
             # Special message for finding a better route
             if results.get('found_better_route', False):
@@ -559,7 +669,12 @@ with tab1:
                     segment_distance = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('distance', 0)
                     total_distance += segment_distance
                     
-                    st.markdown(f"**Step {i+1}:** {start} → {end} ({segment_distance} cm)")
+                    # Check if this move violated a constraint
+                    violated_constraint = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('violated_constraint')
+                    violation_info = ""
+                    if violated_constraint:
+                        violation_info = f" ⚠️ Violated constraint: {violated_constraint[0]} → {violated_constraint[1]}"
+                        st.markdown(f"**Step {i+1}:** {start} → {end} ({segment_distance} cm){violation_info}")
                 
                 st.metric("Total Distance", f"{total_distance:.1f} cm")
             
@@ -593,9 +708,9 @@ with tab1:
                 st.markdown("Master all logistics challenges in one comprehensive experience")
                 
                 difficulty = st.radio("Select Difficulty Level", 
-                                    ["Easy (1 road closure)", 
-                                     "Medium (2 road closures)", 
-                                     "Hard (3 road closures)"],
+                                    ["Easy (1 road closure, no constraints)", 
+                                     "Medium (2 road closures, 1 constraint)", 
+                                     "Hard (3 road closures, 2 constraints)"],
                                     index=0)
                 
                 # Extract number from difficulty
@@ -690,29 +805,24 @@ with tab3:
     1. **Register** with your details and select difficulty level
     2. **Navigate** starting from the Warehouse
     3. **Overcome** road closures (1-3 depending on difficulty)
-    4. **Deliver** packages while following constraints
+    4. **Deliver** packages while following constraints (if applicable)
     5. **Complete** to see your score
 
     ### Difficulty Levels
-    - **Easy**: 1 road closure
-    - **Medium**: 2 road closures
-    - **Hard**: 3 road closures
+    - **Easy**: 1 road closure, no ordering constraints
+    - **Medium**: 2 road closures, 1 ordering constraint (Warehouse before Shop)
+    - **Hard**: 3 road closures, 2 ordering constraints (Warehouse before Shop AND Distribution Center before Home)
 
-    ### Rules & Constraints
+    ### Rules
     - You can only carry one package at a time
-    - Warehouse must be visited before Shop
-    - Distribution Center must be visited before Home
     - All locations must be visited
     - All packages must be delivered
-    
+    - Violating constraints will reduce your score, but you can continue playing
+
     ### Scoring
     Your score is based on efficiency (40%), package delivery (30%), following constraints (20%), and time (10%).
-    
+
     Try to find a more efficient route than the AI's calculated optimal path to earn a perfect efficiency score!
-    
-    ### Constraint Violations
-    If you violate a constraint (like visiting Shop before Warehouse), you'll have one opportunity to undo your move.
-    Using the undo will apply a 50% penalty to your constraints score component.
     """)
 
 # Diagnostics Tab
