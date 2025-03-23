@@ -149,11 +149,11 @@ def add_diagnostics_tab():
                         for p in data.package_manager.packages
                     ])
                     st.text_area("Packages", packages_info, height=150, disabled=True)
-                elif 'packages' in st.session_state:
-                    # For completed game using session state
+                elif 'packages' in data:
+                    # For completed game
                     packages_info = "\n".join([
                         f"Package #{p['id']}: {p['pickup']} → {p['delivery']} ({p['status']})" 
-                        for p in st.session_state.packages
+                        for p in data['packages']
                     ])
                     st.text_area("Packages", packages_info, height=150, disabled=True)
             
@@ -205,10 +205,20 @@ def add_diagnostics_tab():
             # Road Closure Verification
             st.subheader("Road Closure Verification")
             
-            # Create closure verification table
-            if 'enhanced_diagnostics' in data and 'final_graph_state' in data['enhanced_diagnostics']:
+            # Create closure verification table - check for dictionary vs. object
+            has_enhanced_diag = False
+            graph_state = None
+            
+            if isinstance(data, dict) and 'enhanced_diagnostics' in data and 'final_graph_state' in data['enhanced_diagnostics']:
+                # For completed game with enhanced diagnostics
+                has_enhanced_diag = True
                 graph_state = data['enhanced_diagnostics']['final_graph_state']
-                
+            elif hasattr(data, 'move_history') and hasattr(data, 'graph'):
+                # For active game with enhanced diagnostics
+                has_enhanced_diag = True
+                graph_state = data.graph.get_graph_state()
+            
+            if has_enhanced_diag and graph_state:
                 # Create a table of all roads and their closure status
                 closure_data = []
                 
@@ -219,7 +229,10 @@ def add_diagnostics_tab():
                     loc1, loc2 = road
                     
                     # Check if this road is in closed_roads list
-                    declared_closed = (loc1, loc2) in data['closed_roads'] or (loc2, loc1) in data['closed_roads']
+                    if hasattr(data, 'closed_roads'):
+                        declared_closed = (loc1, loc2) in data.closed_roads or (loc2, loc1) in data.closed_roads
+                    else:
+                        declared_closed = (loc1, loc2) in data['closed_roads'] or (loc2, loc1) in data['closed_roads']
                     
                     # Check if this road is actually closed in the graph
                     actual_closed = True
@@ -253,8 +266,18 @@ def add_diagnostics_tab():
             tabs = st.tabs(["Player Route", "Optimal Route"])
             
             with tabs[0]:
-                if 'player_route' in data:
+                # Check for dictionary vs. object
+                if hasattr(data, 'current_route'):
+                    player_route = data.current_route
+                    closed_roads = data.closed_roads
+                elif 'player_route' in data:
                     player_route = data['player_route']
+                    closed_roads = data['closed_roads']
+                else:
+                    player_route = None
+                    closed_roads = []
+                
+                if player_route:
                     st.markdown("Checking if each segment of the player's route is valid with current road closures:")
                     
                     # Validate each segment
@@ -265,7 +288,7 @@ def add_diagnostics_tab():
                         # Create expander for each segment
                         with st.expander(f"Segment {i+1}: {start} → {end}"):
                             # Check if this is a direct connection or uses closed roads
-                            is_direct = (start, end) not in data['closed_roads'] and (end, start) not in data['closed_roads']
+                            is_direct = (start, end) not in closed_roads and (end, start) not in closed_roads
                             
                             if is_direct:
                                 st.success(f"Direct path available: {start} → {end}")
@@ -274,8 +297,18 @@ def add_diagnostics_tab():
                                 st.info("This segment should require a detour if road closures are enforced correctly.")
             
             with tabs[1]:
-                if 'optimal_route' in data:
+                # Check for dictionary vs. object
+                if hasattr(data, 'optimal_route'):
+                    optimal_route = data.optimal_route
+                    closed_roads = data.closed_roads
+                elif 'optimal_route' in data:
                     optimal_route = data['optimal_route']
+                    closed_roads = data['closed_roads']
+                else:
+                    optimal_route = None
+                    closed_roads = []
+                
+                if optimal_route:
                     st.markdown("Checking if each segment of the optimal route is valid with current road closures:")
                     
                     # Validate each segment
@@ -286,7 +319,7 @@ def add_diagnostics_tab():
                         # Create expander for each segment
                         with st.expander(f"Segment {i+1}: {start} → {end}"):
                             # Check if this is a direct connection or uses closed roads
-                            is_direct = (start, end) not in data['closed_roads'] and (end, start) not in data['closed_roads']
+                            is_direct = (start, end) not in closed_roads and (end, start) not in closed_roads
                             
                             if is_direct:
                                 st.success(f"Direct path available: {start} → {end}")
@@ -295,21 +328,38 @@ def add_diagnostics_tab():
                                 st.info("This segment should require a detour if road closures are enforced correctly.")
             
             # Display path validation logs if available
-            if 'enhanced_diagnostics' in data and 'path_validation_logs' in data['enhanced_diagnostics']:
+            path_validation_logs = None
+            if isinstance(data, dict) and 'enhanced_diagnostics' in data and 'path_validation_logs' in data['enhanced_diagnostics']:
+                path_validation_logs = data['enhanced_diagnostics']['path_validation_logs']
+            elif hasattr(data, 'path_validation_logs'):
+                path_validation_logs = data.path_validation_logs
+            
+            if path_validation_logs:
                 st.subheader("Path Validation Logs")
                 
-                logs = data['enhanced_diagnostics']['path_validation_logs']
-                for i, log in enumerate(logs):
+                for i, log in enumerate(path_validation_logs):
                     with st.expander(f"Log #{i+1}: {log.get('log_id', 'Unknown')}"):
                         st.json(log)
             
             # Add option to download full diagnostics
-            if 'enhanced_diagnostics' in data:
+            enhanced_diagnostics = None
+            if isinstance(data, dict) and 'enhanced_diagnostics' in data:
+                enhanced_diagnostics = data['enhanced_diagnostics']
+            elif hasattr(data, 'move_history') and hasattr(data, 'path_validation_logs'):
+                # Construct diagnostics from the object
+                enhanced_diagnostics = {
+                    'move_history': data.move_history,
+                    'path_validation_logs': data.path_validation_logs,
+                    'optimizer_logs': getattr(data, 'optimizer_logs', []),
+                    'final_graph_state': data.graph.get_graph_state() if hasattr(data, 'graph') else {}
+                }
+            
+            if enhanced_diagnostics:
                 st.subheader("Full Diagnostics Data")
                 
                 # Convert to JSON string
                 import json
-                diag_json = json.dumps(data['enhanced_diagnostics'], indent=2)
+                diag_json = json.dumps(enhanced_diagnostics, indent=2)
                 
                 # Create download button
                 st.download_button(
