@@ -199,6 +199,126 @@ def add_diagnostics_tab():
                     st.code(" → ".join(optimal_route))
                     st.metric("Optimal Distance", f"{data['optimal_distance']:.1f} cm")
             
+            # Enhanced diagnostics section
+            st.markdown("### Enhanced Diagnostics")
+            
+            # Road Closure Verification
+            st.subheader("Road Closure Verification")
+            
+            # Create closure verification table
+            if 'enhanced_diagnostics' in data and 'final_graph_state' in data['enhanced_diagnostics']:
+                graph_state = data['enhanced_diagnostics']['final_graph_state']
+                
+                # Create a table of all roads and their closure status
+                closure_data = []
+                
+                # Get all possible road segments from config
+                from config import ROAD_SEGMENTS
+                
+                for road in ROAD_SEGMENTS:
+                    loc1, loc2 = road
+                    
+                    # Check if this road is in closed_roads list
+                    declared_closed = (loc1, loc2) in data['closed_roads'] or (loc2, loc1) in data['closed_roads']
+                    
+                    # Check if this road is actually closed in the graph
+                    actual_closed = True
+                    if 'connectivity' in graph_state:
+                        if loc2 in graph_state['connectivity'].get(loc1, []) or loc1 in graph_state['connectivity'].get(loc2, []):
+                            actual_closed = False
+                    
+                    # Add to table data
+                    closure_data.append({
+                        "Road": f"{loc1} ↔️ {loc2}",
+                        "Declared Closed": "Yes" if declared_closed else "No",
+                        "Actually Closed": "Yes" if actual_closed else "No",
+                        "Status": "✅ Consistent" if declared_closed == actual_closed else "❌ Inconsistent"
+                    })
+                
+                # Create DataFrame and display
+                import pandas as pd
+                closure_df = pd.DataFrame(closure_data)
+                st.dataframe(closure_df, use_container_width=True)
+                
+                # Alert if inconsistencies found
+                inconsistencies = [row["Road"] for row in closure_data if "Inconsistent" in row["Status"]]
+                if inconsistencies:
+                    st.error(f"Found {len(inconsistencies)} inconsistencies in road closure state: {', '.join(inconsistencies)}")
+            else:
+                st.info("Enhanced diagnostics data not available for this game.")
+            
+            # Path Validation for Routes
+            st.subheader("Route Path Validation")
+            
+            tabs = st.tabs(["Player Route", "Optimal Route"])
+            
+            with tabs[0]:
+                if 'player_route' in data:
+                    player_route = data['player_route']
+                    st.markdown("Checking if each segment of the player's route is valid with current road closures:")
+                    
+                    # Validate each segment
+                    for i in range(len(player_route) - 1):
+                        start = player_route[i]
+                        end = player_route[i+1]
+                        
+                        # Create expander for each segment
+                        with st.expander(f"Segment {i+1}: {start} → {end}"):
+                            # Check if this is a direct connection or uses closed roads
+                            is_direct = (start, end) not in data['closed_roads'] and (end, start) not in data['closed_roads']
+                            
+                            if is_direct:
+                                st.success(f"Direct path available: {start} → {end}")
+                            else:
+                                st.warning(f"Direct path should be closed: {start} → {end}")
+                                st.info("This segment should require a detour if road closures are enforced correctly.")
+            
+            with tabs[1]:
+                if 'optimal_route' in data:
+                    optimal_route = data['optimal_route']
+                    st.markdown("Checking if each segment of the optimal route is valid with current road closures:")
+                    
+                    # Validate each segment
+                    for i in range(len(optimal_route) - 1):
+                        start = optimal_route[i]
+                        end = optimal_route[i+1]
+                        
+                        # Create expander for each segment
+                        with st.expander(f"Segment {i+1}: {start} → {end}"):
+                            # Check if this is a direct connection or uses closed roads
+                            is_direct = (start, end) not in data['closed_roads'] and (end, start) not in data['closed_roads']
+                            
+                            if is_direct:
+                                st.success(f"Direct path available: {start} → {end}")
+                            else:
+                                st.warning(f"Direct path should be closed: {start} → {end}")
+                                st.info("This segment should require a detour if road closures are enforced correctly.")
+            
+            # Display path validation logs if available
+            if 'enhanced_diagnostics' in data and 'path_validation_logs' in data['enhanced_diagnostics']:
+                st.subheader("Path Validation Logs")
+                
+                logs = data['enhanced_diagnostics']['path_validation_logs']
+                for i, log in enumerate(logs):
+                    with st.expander(f"Log #{i+1}: {log.get('log_id', 'Unknown')}"):
+                        st.json(log)
+            
+            # Add option to download full diagnostics
+            if 'enhanced_diagnostics' in data:
+                st.subheader("Full Diagnostics Data")
+                
+                # Convert to JSON string
+                import json
+                diag_json = json.dumps(data['enhanced_diagnostics'], indent=2)
+                
+                # Create download button
+                st.download_button(
+                    "Download Full Diagnostics Data",
+                    data=diag_json,
+                    file_name="logistics_rush_diagnostics.json",
+                    mime="application/json"
+                )
+            
             # Path finding details
             st.markdown("### Path Finding Details")
             
@@ -234,7 +354,7 @@ def add_diagnostics_tab():
     if st.session_state.diagnostics_history and st.button("Clear History", type="secondary"):
         st.session_state.diagnostics_history = []
         st.success("Diagnostic history cleared!")
-
+        
 # Main UI
 st.markdown('<h1 class="main-title">🚚 Logistics Rush</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe_allow_html=True)
