@@ -1,11 +1,13 @@
 import plotly.graph_objects as go
 import numpy as np
 
-def visualize_map(route=None, closed_roads=None, locations=None, optimal_route=None, show_both=False):
+def visualize_map(current_location=None, available_moves=None, route=None, closed_roads=None, locations=None, optimal_route=None, show_both=False):
     """
-    Create a map visualization.
+    Create a map visualization with enhanced features.
     
     Args:
+        current_location: The player's current location
+        available_moves: List of available moves from current location
         route: The player's route as a list of location names
         closed_roads: List of tuples of closed roads [(loc1, loc2), ...]
         locations: Dictionary of location data including positions
@@ -89,6 +91,25 @@ def visualize_map(route=None, closed_roads=None, locations=None, optimal_route=N
                 borderwidth=1,
                 opacity=0.9
             )
+    
+    # Highlight available moves if provided
+    if current_location and available_moves:
+        current_pos = locations[current_location]["position"]
+        
+        for move in available_moves:
+            move_loc = move["location"]
+            move_pos = locations[move_loc]["position"]
+            
+            # Draw a highlighted path for available moves
+            fig.add_trace(go.Scatter(
+                x=[current_pos[0], move_pos[0]], 
+                y=[current_pos[1], move_pos[1]], 
+                mode='lines',
+                line=dict(color='#4CAF50', width=8, dash='solid'),
+                opacity=0.6,
+                hoverinfo='text', 
+                hovertext=f"Move to {move_loc} ({move['distance']} cm)"
+            ))
     
     # Draw player route
     if route and len(route) > 1:
@@ -196,8 +217,8 @@ def visualize_map(route=None, closed_roads=None, locations=None, optimal_route=N
         path = f"M {hexagon_points[0][0]},{hexagon_points[0][1]} " + \
                " ".join(f"L {x},{y}" for x, y in hexagon_points[1:]) + " Z"
         
-        # Highlight current location if a route is provided
-        is_current = route and location == route[-1]
+        # Highlight current location if provided
+        is_current = current_location and location == current_location
         border_color = "#000000" if is_current else "#ffffff"
         border_width = 3 if is_current else 2
         

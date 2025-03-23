@@ -23,6 +23,7 @@ class LogisticsRushGame:
         
         # Initialize game state
         self.game_active = False
+        self.current_location = None
         self.current_route = []
         self.start_time = None
         self.closed_roads = []
@@ -32,13 +33,14 @@ class LogisticsRushGame:
         
         # Enhanced diagnostics
         self.move_history = []
-        self.path_validation_logs = []
-        self.optimizer_logs = []
+        self.decision_logs = []
+        self.constraint_violations = []
     
     def start_game(self):
         """Start a new game with the current difficulty"""
         # Reset game state
         self.game_active = True
+        self.current_location = self.start_location
         self.current_route = [self.start_location]
         self.start_time = time.time()
         
@@ -50,104 +52,100 @@ class LogisticsRushGame:
         for road in self.closed_roads:
             self.graph.close_road(road[0], road[1])
         
-        # Enhanced diagnostics - Verify road closures after initialization
-        self._log_road_closure_state("after_initialization")
-        
         # Calculate optimal route
         self._calculate_optimal_route()
         
-        # Enhanced diagnostics - Verify optimal route feasibility
-        self._validate_route_feasibility(self.optimal_route, "optimal_route_validation")
+        # Log initial game state
+        self.decision_logs.append({
+            "timestamp": time.time(),
+            "action": "game_start",
+            "location": self.current_location,
+            "available_moves": self.get_available_moves(),
+            "packages": self.package_manager.get_package_info(),
+            "closed_roads": self.closed_roads
+        })
         
         return {
             "started": True,
+            "current_location": self.current_location,
+            "available_moves": self.get_available_moves(),
             "packages": self.package_manager.get_package_info(),
-            "closed_roads": self.closed_roads,
-            "start_location": self.start_location
+            "closed_roads": self.closed_roads
         }
     
     def move_to_location(self, location):
-        """Move to a new location if it's valid"""
+        """Move to a directly connected location"""
         if not self.game_active:
             return {"success": False, "message": "Game not active"}
-            
-        current_location = self.current_route[-1]
         
-        # Enhanced diagnostics - Log move attempt details
-        move_attempt = {
+        # Log decision point
+        decision_point = {
             "timestamp": time.time(),
-            "from": current_location,
+            "action": "move_attempt",
+            "from": self.current_location,
             "to": location,
             "current_route": self.current_route.copy()
         }
         
-        # Check if move is valid (there's a path)
-        path, distance = self.graph.find_shortest_path(current_location, location)
+        # Check if the location is directly connected
+        if not self.graph.is_directly_connected(self.current_location, location):
+            decision_point["result"] = "failed"
+            decision_point["reason"] = "not_directly_connected"
+            self.decision_logs.append(decision_point)
+            return {
+                "success": False, 
+                "message": f"Cannot move directly from {self.current_location} to {location}. Choose a connected location."
+            }
         
-        # Enhanced diagnostics - Log path details
-        move_attempt["calculated_path"] = path
-        move_attempt["calculated_distance"] = distance
+        # Get the distance for this move
+        distance = self.graph.get_edge_weight(self.current_location, location)
+        decision_point["distance"] = distance
         
-        if path is None:
-            move_attempt["result"] = "failed"
-            move_attempt["reason"] = "no_valid_path"
-            self.move_history.append(move_attempt)
-            return {"success": False, "message": f"No valid path to {location}"}
-            
-        # Extra validation: check each segment of the path
-        segment_validation = []
-        valid_path = True
-        invalid_segment = None
+        # Check if this move would violate constraints
+        temp_route = self.current_route + [location]
+        valid, message = self.constraints.validate_route(temp_route)
         
-        for i in range(len(path) - 1):
-            segment = (path[i], path[i+1])
-            is_closed = self.graph.is_road_closed(path[i], path[i+1])
-            segment_validation.append({
-                "segment": segment,
-                "is_closed": is_closed
-            })
-            
-            if is_closed:
-                valid_path = False
-                invalid_segment = segment
-                break
-        
-        move_attempt["segment_validation"] = segment_validation
-        
-        if not valid_path:
-            move_attempt["result"] = "failed"
-            move_attempt["reason"] = f"road_segment_closed_{invalid_segment[0]}_to_{invalid_segment[1]}"
-            self.move_history.append(move_attempt)
-            return {"success": False, "message": f"Road between {invalid_segment[0]} and {invalid_segment[1]} is closed"}
-        
-        # Check constraints
-        valid, message = self.constraints.validate_move(self.current_route, location)
-        move_attempt["constraints_valid"] = valid
-        move_attempt["constraints_message"] = message
+        decision_point["constraints_check"] = {
+            "valid": valid,
+            "message": message
+        }
         
         if not valid:
-            move_attempt["result"] = "failed"
-            move_attempt["reason"] = "constraints_violation"
-            self.move_history.append(move_attempt)
+            self.constraint_violations.append({
+                "timestamp": time.time(),
+                "current_route": self.current_route.copy(),
+                "attempted_location": location,
+                "violation_message": message
+            })
+            
+            decision_point["result"] = "failed"
+            decision_point["reason"] = "constraint_violation"
+            self.decision_logs.append(decision_point)
+            
             return {"success": False, "message": message}
         
-        # Move is valid, update route
+        # Move is valid, update route and current location
         self.current_route.append(location)
-        move_attempt["result"] = "success"
+        self.current_location = location
+        
+        decision_point["result"] = "success"
+        self.decision_logs.append(decision_point)
+        
+        # Record this move in history
+        self.move_history.append({
+            "timestamp": time.time(),
+            "from": self.current_route[-2],
+            "to": location,
+            "distance": distance
+        })
         
         # Check for automatic package delivery
         result = {"success": True, "message": f"Moved to {location}"}
         
         if self.package_manager.carrying and self.package_manager.carrying.delivery == location:
             success, deliver_msg = self.package_manager.deliver(location)
-            move_attempt["auto_delivery"] = {
-                "success": success,
-                "message": deliver_msg
-            }
             if success:
                 result["message"] += f". {deliver_msg}"
-        
-        self.move_history.append(move_attempt)
         
         # Check if game is complete
         if self._check_game_completion():
@@ -155,64 +153,97 @@ class LogisticsRushGame:
             result["game_completed"] = True
             result["results"] = game_results
             
+        # Return available moves for the next step
+        result["available_moves"] = self.get_available_moves()
+        result["packages_here"] = self.package_manager.get_available_pickups(location)
+        
         return result
     
     def pickup_package(self, package_id):
         """Pick up a package at the current location"""
         if not self.game_active:
             return {"success": False, "message": "Game not active"}
-            
-        current_location = self.current_route[-1]
         
-        # Enhanced diagnostics - Log pickup attempt
-        pickup_attempt = {
+        # Log decision
+        decision_point = {
             "timestamp": time.time(),
-            "action": "pickup",
-            "package_id": package_id,
-            "location": current_location
+            "action": "pickup_attempt",
+            "location": self.current_location,
+            "package_id": package_id
         }
         
-        success, message = self.package_manager.pickup(package_id, current_location)
+        success, message = self.package_manager.pickup(package_id, self.current_location)
         
-        pickup_attempt["success"] = success
-        pickup_attempt["message"] = message
-        self.move_history.append(pickup_attempt)
+        decision_point["result"] = "success" if success else "failed"
+        decision_point["message"] = message
+        self.decision_logs.append(decision_point)
         
-        return {"success": success, "message": message}
+        result = {"success": success, "message": message}
+        
+        # Return available moves for the next step
+        result["available_moves"] = self.get_available_moves()
+        
+        return result
     
     def deliver_package(self):
         """Deliver the currently carried package"""
         if not self.game_active:
             return {"success": False, "message": "Game not active"}
-            
-        current_location = self.current_route[-1]
         
-        # Enhanced diagnostics - Log delivery attempt
-        delivery_attempt = {
+        # Log decision
+        decision_point = {
             "timestamp": time.time(),
-            "action": "delivery",
-            "location": current_location
+            "action": "delivery_attempt",
+            "location": self.current_location
         }
         
         if self.package_manager.carrying:
-            delivery_attempt["package_id"] = self.package_manager.carrying.id
-            delivery_attempt["package_destination"] = self.package_manager.carrying.delivery
+            decision_point["package_id"] = self.package_manager.carrying.id
+            decision_point["package_destination"] = self.package_manager.carrying.delivery
+            
+        success, message = self.package_manager.deliver(self.current_location)
         
-        success, message = self.package_manager.deliver(current_location)
+        decision_point["result"] = "success" if success else "failed"
+        decision_point["message"] = message
+        self.decision_logs.append(decision_point)
         
-        delivery_attempt["success"] = success
-        delivery_attempt["message"] = message
-        self.move_history.append(delivery_attempt)
-        
-        # Check if game is complete
         result = {"success": success, "message": message}
         
+        # Check if game is complete
         if success and self._check_game_completion():
             game_results = self.end_game()
             result["game_completed"] = True
             result["results"] = game_results
             
+        # Return available moves for the next step
+        result["available_moves"] = self.get_available_moves()
+        
         return result
+    
+    def get_available_moves(self):
+        """Get all locations that can be moved to from the current location"""
+        if not self.game_active or not self.current_location:
+            return []
+            
+        # Get all connected locations
+        connected = self.graph.get_connected_locations(self.current_location)
+        
+        # For each one, check if it would violate constraints
+        valid_moves = []
+        for location in connected:
+            temp_route = self.current_route + [location]
+            valid, _ = self.constraints.validate_route(temp_route)
+            
+            if valid:
+                # Get the distance for this move
+                distance = self.graph.get_edge_weight(self.current_location, location)
+                valid_moves.append({
+                    "location": location,
+                    "distance": distance,
+                    "has_packages": len(self.package_manager.get_available_pickups(location)) > 0
+                })
+        
+        return valid_moves
     
     def end_game(self):
         """End the game and calculate results"""
@@ -222,16 +253,8 @@ class LogisticsRushGame:
         self.game_active = False
         game_time = time.time() - self.start_time
         
-        # Calculate player route distance
-        full_path, player_distance = self.graph.find_path_distance(self.current_route)
-        
-        # Enhanced diagnostics - Validate final route
-        self._validate_route_feasibility(self.current_route, "final_player_route_validation")
-        
-        # Ensure player_distance is valid (not infinity)
-        if player_distance == float('inf'):
-            # Fallback to a simple distance calculation
-            player_distance = len(self.current_route) * 300
+        # Calculate player route distance - direct calculation since we now have explicit movements
+        player_distance = self.graph.calculate_route_distance(self.current_route)
         
         # Calculate efficiency
         if player_distance <= self.optimal_distance:
@@ -263,8 +286,20 @@ class LogisticsRushGame:
         
         score = min(100, max(0, int(score)))
         
-        # Enhanced diagnostics for the results
-        diagnostic_data = {
+        # Generate detailed diagnostics
+        diagnostics = {
+            "move_history": self.move_history,
+            "decision_logs": self.decision_logs,
+            "constraint_violations": self.constraint_violations,
+            "graph_state": self.graph.get_graph_state(),
+            "optimal_route_calculation": {
+                "route": self.optimal_route,
+                "distance": self.optimal_distance,
+                "operations": self.optimal_package_operations
+            }
+        }
+        
+        return {
             "time": game_time,
             "player_route": self.current_route,
             "player_distance": player_distance,
@@ -277,22 +312,14 @@ class LogisticsRushGame:
             "closed_roads": self.closed_roads,
             "packages": self.package_manager.get_package_info(),
             "optimal_package_operations": self.optimal_package_operations,
-            "enhanced_diagnostics": {
-                "move_history": self.move_history,
-                "path_validation_logs": self.path_validation_logs,
-                "optimizer_logs": self.optimizer_logs,
-                "final_graph_state": self.graph.get_graph_state()
-            }
+            "enhanced_diagnostics": diagnostics
         }
-        
-        return diagnostic_data
     
     def get_game_status(self):
         """Get current game status"""
         if not self.game_active:
             return {"active": False}
             
-        current_location = self.current_route[-1]
         game_time = time.time() - self.start_time
         
         # Calculate progress
@@ -311,13 +338,14 @@ class LogisticsRushGame:
         return {
             "active": True,
             "time": game_time,
-            "current_location": current_location,
+            "current_location": self.current_location,
             "locations_visited": unique_locations,
             "total_locations": total_locations,
             "packages_delivered": delivered,
             "total_packages": total_packages,
             "carrying_package": self.package_manager.carrying.id if self.package_manager.carrying else None,
-            "progress": combined_progress
+            "progress": combined_progress,
+            "available_moves": self.get_available_moves()
         }
     
     def _generate_packages(self):
@@ -371,38 +399,17 @@ class LogisticsRushGame:
         # Get a list of all locations
         locations = list(self.graph.locations.keys())
         
-        # Enhanced diagnostics - Save pre-optimization state
-        self.optimizer_logs.append({
-            "stage": "pre_optimization",
-            "graph_state": self.graph.get_graph_state(),
-            "closed_roads": self.closed_roads,
-            "start_location": self.start_location,
-            "locations": locations,
-            "packages": self.package_manager.get_package_info()
-        })
-        
         # Find the optimal route with package operations
-        route, distance, operations, optimization_log = optimizer.find_optimal_route(
+        route, distance, operations = optimizer.find_optimal_route(
             self.start_location, 
             locations, 
             self.package_manager.packages
         )
         
-        # Store the optimization log
-        self.optimizer_logs.append(optimization_log)
-        
         # Store the results
         self.optimal_route = route
         self.optimal_distance = distance
         self.optimal_package_operations = operations
-        
-        # Enhanced diagnostics - Log post-optimization
-        self.optimizer_logs.append({
-            "stage": "post_optimization",
-            "optimal_route": route,
-            "optimal_distance": distance,
-            "optimal_operations": operations
-        })
     
     def _check_game_completion(self):
         """Check if the game is complete"""
@@ -413,66 +420,3 @@ class LogisticsRushGame:
         all_packages_delivered = self.package_manager.all_packages_delivered()
         
         return all_locations_visited and all_packages_delivered
-    
-    # New diagnostic methods
-    def _log_road_closure_state(self, stage):
-        """Log the current state of all roads for diagnostic purposes"""
-        road_state = {}
-        for road in self.graph.road_segments:
-            loc1, loc2 = road
-            is_closed = self.graph.is_road_closed(loc1, loc2)
-            road_state[f"{loc1}-{loc2}"] = {
-                "closed": is_closed,
-                "expected_closed": (loc1, loc2) in self.closed_roads or (loc2, loc1) in self.closed_roads
-            }
-        
-        self.path_validation_logs.append({
-            "timestamp": time.time(),
-            "stage": stage,
-            "road_state": road_state
-        })
-    
-    def _validate_route_feasibility(self, route, log_id):
-        """Validate if a route is feasible given current road closures"""
-        result = {
-            "timestamp": time.time(),
-            "route": route.copy(),
-            "log_id": log_id,
-            "segments": []
-        }
-        
-        if not route or len(route) < 2:
-            result["feasible"] = True
-            result["message"] = "Route too short for validation"
-            self.path_validation_logs.append(result)
-            return True
-        
-        overall_feasible = True
-        
-        for i in range(len(route) - 1):
-            start = route[i]
-            end = route[i + 1]
-            
-            # Try to find a path between consecutive locations
-            path, distance = self.graph.find_shortest_path(start, end)
-            
-            segment_result = {
-                "from": start,
-                "to": end,
-                "direct_connection_closed": self.graph.is_road_closed(start, end),
-                "path_found": path is not None,
-                "path": path,
-                "distance": distance
-            }
-            
-            if path is None:
-                overall_feasible = False
-                segment_result["message"] = f"No path exists between {start} and {end}"
-            
-            result["segments"].append(segment_result)
-        
-        result["feasible"] = overall_feasible
-        result["message"] = "Route is feasible" if overall_feasible else "Route contains infeasible segments"
-        
-        self.path_validation_logs.append(result)
-        return overall_feasible

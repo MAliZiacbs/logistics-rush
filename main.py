@@ -172,17 +172,26 @@ def add_diagnostics_tab():
                         st.code(" → ".join(player_route))
                         
                         # Calculate distance
-                        total_distance = 0
-                        for i in range(len(player_route) - 1):
-                            _, segment_distance = data.graph.find_shortest_path(player_route[i], player_route[i+1])
-                            total_distance += segment_distance
-                            
+                        total_distance = data.graph.calculate_route_distance(player_route)
                         st.metric("Current Distance", f"{total_distance:.1f} cm")
+                        
+                        # Show move history
+                        if hasattr(data, 'move_history') and data.move_history:
+                            with st.expander("Move History"):
+                                for i, move in enumerate(data.move_history):
+                                    st.markdown(f"**Move {i+1}:** {move.get('from', 'Start')} → {move.get('to', 'Unknown')} ({move.get('distance', 0)} cm)")
+                        
                 elif 'player_route' in data:
                     # For completed game
                     player_route = data['player_route']
                     st.code(" → ".join(player_route))
                     st.metric("Total Distance", f"{data['player_distance']:.1f} cm")
+                    
+                    # Show move history from enhanced diagnostics
+                    if 'enhanced_diagnostics' in data and 'move_history' in data['enhanced_diagnostics']:
+                        with st.expander("Move History"):
+                            for i, move in enumerate(data['enhanced_diagnostics']['move_history']):
+                                st.markdown(f"**Move {i+1}:** {move.get('from', 'Start')} → {move.get('to', 'Unknown')} ({move.get('distance', 0)} cm)")
             
             with route_col2:
                 st.markdown("**Optimal Route:**")
@@ -199,189 +208,54 @@ def add_diagnostics_tab():
                     st.code(" → ".join(optimal_route))
                     st.metric("Optimal Distance", f"{data['optimal_distance']:.1f} cm")
             
-            # Enhanced diagnostics section
-            st.markdown("### Enhanced Diagnostics")
-            
-            # Road Closure Verification
-            st.subheader("Road Closure Verification")
-            
-            # Create closure verification table - check for dictionary vs. object
-            has_enhanced_diag = False
-            graph_state = None
-            
-            if isinstance(data, dict) and 'enhanced_diagnostics' in data and 'final_graph_state' in data['enhanced_diagnostics']:
-                # For completed game with enhanced diagnostics
-                has_enhanced_diag = True
-                graph_state = data['enhanced_diagnostics']['final_graph_state']
-            elif hasattr(data, 'move_history') and hasattr(data, 'graph'):
-                # For active game with enhanced diagnostics
-                has_enhanced_diag = True
-                graph_state = data.graph.get_graph_state()
-            
-            if has_enhanced_diag and graph_state:
-                # Create a table of all roads and their closure status
-                closure_data = []
-                
-                # Get all possible road segments from config
-                from config import ROAD_SEGMENTS
-                
-                for road in ROAD_SEGMENTS:
-                    loc1, loc2 = road
-                    
-                    # Check if this road is in closed_roads list
-                    if hasattr(data, 'closed_roads'):
-                        declared_closed = (loc1, loc2) in data.closed_roads or (loc2, loc1) in data.closed_roads
-                    else:
-                        declared_closed = (loc1, loc2) in data['closed_roads'] or (loc2, loc1) in data['closed_roads']
-                    
-                    # Check if this road is actually closed in the graph
-                    actual_closed = True
-                    if 'connectivity' in graph_state:
-                        if loc2 in graph_state['connectivity'].get(loc1, []) or loc1 in graph_state['connectivity'].get(loc2, []):
-                            actual_closed = False
-                    
-                    # Add to table data
-                    closure_data.append({
-                        "Road": f"{loc1} ↔️ {loc2}",
-                        "Declared Closed": "Yes" if declared_closed else "No",
-                        "Actually Closed": "Yes" if actual_closed else "No",
-                        "Status": "✅ Consistent" if declared_closed == actual_closed else "❌ Inconsistent"
-                    })
-                
-                # Create DataFrame and display
-                import pandas as pd
-                closure_df = pd.DataFrame(closure_data)
-                st.dataframe(closure_df, use_container_width=True)
-                
-                # Alert if inconsistencies found
-                inconsistencies = [row["Road"] for row in closure_data if "Inconsistent" in row["Status"]]
-                if inconsistencies:
-                    st.error(f"Found {len(inconsistencies)} inconsistencies in road closure state: {', '.join(inconsistencies)}")
-            else:
-                st.info("Enhanced diagnostics data not available for this game.")
-            
-            # Path Validation for Routes
-            st.subheader("Route Path Validation")
-            
-            tabs = st.tabs(["Player Route", "Optimal Route"])
-            
-            with tabs[0]:
-                # Check for dictionary vs. object
-                if hasattr(data, 'current_route'):
-                    player_route = data.current_route
-                    closed_roads = data.closed_roads
-                elif 'player_route' in data:
-                    player_route = data['player_route']
-                    closed_roads = data['closed_roads']
-                else:
-                    player_route = None
-                    closed_roads = []
-                
-                if player_route:
-                    st.markdown("Checking if each segment of the player's route is valid with current road closures:")
-                    
-                    # Validate each segment
-                    for i in range(len(player_route) - 1):
-                        start = player_route[i]
-                        end = player_route[i+1]
-                        
-                        # Create expander for each segment
-                        with st.expander(f"Segment {i+1}: {start} → {end}"):
-                            # Check if this is a direct connection or uses closed roads
-                            is_direct = (start, end) not in closed_roads and (end, start) not in closed_roads
-                            
-                            if is_direct:
-                                st.success(f"Direct path available: {start} → {end}")
-                            else:
-                                st.warning(f"Direct path should be closed: {start} → {end}")
-                                st.info("This segment should require a detour if road closures are enforced correctly.")
-            
-            with tabs[1]:
-                # Check for dictionary vs. object
-                if hasattr(data, 'optimal_route'):
-                    optimal_route = data.optimal_route
-                    closed_roads = data.closed_roads
-                elif 'optimal_route' in data:
-                    optimal_route = data['optimal_route']
-                    closed_roads = data['closed_roads']
-                else:
-                    optimal_route = None
-                    closed_roads = []
-                
-                if optimal_route:
-                    st.markdown("Checking if each segment of the optimal route is valid with current road closures:")
-                    
-                    # Validate each segment
-                    for i in range(len(optimal_route) - 1):
-                        start = optimal_route[i]
-                        end = optimal_route[i+1]
-                        
-                        # Create expander for each segment
-                        with st.expander(f"Segment {i+1}: {start} → {end}"):
-                            # Check if this is a direct connection or uses closed roads
-                            is_direct = (start, end) not in closed_roads and (end, start) not in closed_roads
-                            
-                            if is_direct:
-                                st.success(f"Direct path available: {start} → {end}")
-                            else:
-                                st.warning(f"Direct path should be closed: {start} → {end}")
-                                st.info("This segment should require a detour if road closures are enforced correctly.")
-            
-            # Display path validation logs if available
-            path_validation_logs = None
-            if isinstance(data, dict) and 'enhanced_diagnostics' in data and 'path_validation_logs' in data['enhanced_diagnostics']:
-                path_validation_logs = data['enhanced_diagnostics']['path_validation_logs']
-            elif hasattr(data, 'path_validation_logs'):
-                path_validation_logs = data.path_validation_logs
-            
-            if path_validation_logs:
-                st.subheader("Path Validation Logs")
-                
-                for i, log in enumerate(path_validation_logs):
-                    with st.expander(f"Log #{i+1}: {log.get('log_id', 'Unknown')}"):
-                        st.json(log)
-            
-            # Add option to download full diagnostics
-            enhanced_diagnostics = None
-            if isinstance(data, dict) and 'enhanced_diagnostics' in data:
-                enhanced_diagnostics = data['enhanced_diagnostics']
-            elif hasattr(data, 'move_history') and hasattr(data, 'path_validation_logs'):
-                # Construct diagnostics from the object
-                enhanced_diagnostics = {
-                    'move_history': data.move_history,
-                    'path_validation_logs': data.path_validation_logs,
-                    'optimizer_logs': getattr(data, 'optimizer_logs', []),
-                    'final_graph_state': data.graph.get_graph_state() if hasattr(data, 'graph') else {}
-                }
-            
-            if enhanced_diagnostics:
-                st.subheader("Full Diagnostics Data")
-                
-                # Convert to JSON string
-                import json
-                diag_json = json.dumps(enhanced_diagnostics, indent=2)
-                
-                # Create download button
-                st.download_button(
-                    "Download Full Diagnostics Data",
-                    data=diag_json,
-                    file_name="logistics_rush_diagnostics.json",
-                    mime="application/json"
-                )
-            
-            # Path finding details
-            st.markdown("### Path Finding Details")
+            # Network Graph
+            st.markdown("### Network Graph")
             
             # Create a graph visualization
             if hasattr(data, 'graph'):
                 # For active game
-                graph = data.graph.graph
-                draw_graph(graph, data.closed_roads)
-            elif 'closed_roads' in data:
-                # For completed game, recreate the graph
+                g_state = data.graph.get_graph_state()
+                
+                st.markdown("#### Connectivity Analysis")
+                # Display graph state as table
+                connectivity_data = []
+                for loc, connections in g_state['connectivity'].items():
+                    connectivity_data.append({
+                        "Location": loc,
+                        "Connected To": ", ".join(connections),
+                        "Connections Count": len(connections)
+                    })
+                
+                connectivity_df = pd.DataFrame(connectivity_data)
+                st.dataframe(connectivity_df, use_container_width=True)
+                
+                # Draw the actual graph
+                st.markdown("#### Visual Network")
+                draw_graph(data.graph.graph, data.closed_roads)
+                
+            elif 'enhanced_diagnostics' in data and 'final_graph_state' in data['enhanced_diagnostics']:
+                # For completed game, visualize based on final state
+                g_state = data['enhanced_diagnostics']['final_graph_state']
+                
+                st.markdown("#### Connectivity Analysis")
+                # Display graph state as table
+                connectivity_data = []
+                for loc, connections in g_state['connectivity'].items():
+                    connectivity_data.append({
+                        "Location": loc,
+                        "Connected To": ", ".join(connections),
+                        "Connections Count": len(connections)
+                    })
+                
+                connectivity_df = pd.DataFrame(connectivity_data)
+                st.dataframe(connectivity_df, use_container_width=True)
+                
+                # Recreate and draw the graph
                 g = LogisticsGraph(LOCATIONS, ROAD_SEGMENTS, DISTANCES)
                 for road in data['closed_roads']:
                     g.close_road(road[0], road[1])
+                    
+                st.markdown("#### Visual Network")
                 draw_graph(g.graph, data['closed_roads'])
                 
             # Option to save diagnostic data
@@ -413,6 +287,7 @@ st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe
 tab1, tab2, tab3, tab4 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics"])
 
 # Game Tab
+# Game Tab
 with tab1:
     col1, col2 = st.columns([2, 1])  # Left column for map, right for controls/info
     
@@ -422,7 +297,12 @@ with tab1:
         
         if st.session_state.game and st.session_state.game.game_active:
             # Show active game map
+            current_location = st.session_state.game.current_location
+            available_moves = st.session_state.game.get_available_moves()
+            
             map_fig = visualize_map(
+                current_location=current_location,
+                available_moves=available_moves,
                 route=st.session_state.game.current_route,
                 closed_roads=st.session_state.game.closed_roads,
                 locations=LOCATIONS
@@ -453,41 +333,32 @@ with tab1:
             st.subheader("Actions")
             
             # Current location
-            current_location = st.session_state.game.current_route[-1]
+            current_location = st.session_state.game.current_location
             st.info(f"Current Location: {current_location}")
             
-            # Movement buttons - 2 columns
-            st.subheader("Check In")
-            move_col1, move_col2 = st.columns(2)
+            # Movement buttons
+            available_moves = st.session_state.game.get_available_moves()
             
-            # List of all locations excluding current
-            locations = [loc for loc in LOCATIONS.keys() if loc != current_location]
-            
-            # First column of locations
-            with move_col1:
-                for i in range(0, len(locations), 2):
-                    if i < len(locations):
-                        loc = locations[i]
+            if available_moves:
+                st.subheader("Available Moves")
+                
+                # Create 2 columns for moves
+                move_cols = st.columns(2)
+                
+                # Distribute moves across columns
+                for i, move in enumerate(available_moves):
+                    col_idx = i % 2
+                    with move_cols[col_idx]:
+                        location = move["location"]
+                        distance = move["distance"]
+                        has_packages = move["has_packages"]
                         
-                        # Check if move is valid
-                        path, _ = st.session_state.game.graph.find_shortest_path(current_location, loc)
-                        valid_path = path is not None
+                        button_label = f"{LOCATIONS[location]['emoji']} {location} ({distance} cm)"
+                        if has_packages:
+                            button_label += " 📦"
                         
-                        # Check constraints
-                        valid_constraints, _ = st.session_state.game.constraints.validate_move(
-                            st.session_state.game.current_route, loc
-                        )
-                        
-                        # Button disabled if path is invalid or constraints violated
-                        disabled = not (valid_path and valid_constraints)
-                        
-                        # Create button
-                        if st.button(f"{LOCATIONS[loc]['emoji']} {loc}", 
-                                   key=f"btn_{loc}", 
-                                   disabled=disabled, 
-                                   use_container_width=True):
-                            result = st.session_state.game.move_to_location(loc)
-                            
+                        if st.button(button_label, key=f"move_{location}", use_container_width=True):
+                            result = st.session_state.game.move_to_location(location)
                             if result["success"]:
                                 if "game_completed" in result and result["game_completed"]:
                                     st.session_state.game_results = result["results"]
@@ -495,39 +366,8 @@ with tab1:
                                 st.rerun()
                             else:
                                 st.error(result["message"])
-            
-            # Second column of locations
-            with move_col2:
-                for i in range(1, len(locations), 2):
-                    if i < len(locations):
-                        loc = locations[i]
-                        
-                        # Check if move is valid
-                        path, _ = st.session_state.game.graph.find_shortest_path(current_location, loc)
-                        valid_path = path is not None
-                        
-                        # Check constraints
-                        valid_constraints, _ = st.session_state.game.constraints.validate_move(
-                            st.session_state.game.current_route, loc
-                        )
-                        
-                        # Button disabled if path is invalid or constraints violated
-                        disabled = not (valid_path and valid_constraints)
-                        
-                        # Create button
-                        if st.button(f"{LOCATIONS[loc]['emoji']} {loc}", 
-                                   key=f"btn_{loc}", 
-                                   disabled=disabled, 
-                                   use_container_width=True):
-                            result = st.session_state.game.move_to_location(loc)
-                            
-                            if result["success"]:
-                                if "game_completed" in result and result["game_completed"]:
-                                    st.session_state.game_results = result["results"]
-                                    st.session_state.game = None
-                                st.rerun()
-                            else:
-                                st.error(result["message"])
+            else:
+                st.warning("No available moves from this location. You may have reached a dead end!")
             
             # Package Pickup/Delivery Actions
             if st.session_state.game.package_manager.carrying:
@@ -548,7 +388,7 @@ with tab1:
                             if "game_completed" in result and result["game_completed"]:
                                 st.session_state.game_results = result["results"]
                                 st.session_state.game = None
-                                
+                            
                             st.rerun()
                         else:
                             st.error(result["message"])
@@ -577,7 +417,129 @@ with tab1:
             st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
-        if st.session_state.game is None and st.session_state.game_results is None:
+        # Game Info Panel for active game
+        if st.session_state.game and st.session_state.game.game_active:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            
+            game_status = st.session_state.game.get_game_status()
+            
+            st.markdown('<div class="status-bar">', unsafe_allow_html=True)
+            st.markdown(f"⏱ **Time:** {game_status['time']:.1f}s | 📦 **Packages:** {game_status['packages_delivered']}/{game_status['total_packages']} | 🌐 **Progress:** {game_status['progress']}%")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            with st.expander("Game Info", expanded=True):
+                # Road closures
+                if st.session_state.game.closed_roads:
+                    st.markdown('<div class="road-closure-alert">⛔️ Road Closures:</div>', unsafe_allow_html=True)
+                    closures_text = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in st.session_state.game.closed_roads])
+                    st.markdown(closures_text)
+                
+                # Package info
+                st.markdown('<div class="package-info">', unsafe_allow_html=True)
+                if game_status['carrying_package']:
+                    carrying = st.session_state.game.package_manager.carrying
+                    st.markdown(f"🚚 **Carrying:** 📦 Package #{carrying.id} to {carrying.delivery}")
+                else:
+                    st.markdown("🚚 **Carrying:** No package")
+                
+                st.markdown(f"📦 **Delivered:** {game_status['packages_delivered']}/{game_status['total_packages']}")
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Constraints info
+                st.markdown('<div class="constraints-info">', unsafe_allow_html=True)
+                st.markdown("🔄 **Constraints:**")
+                st.markdown("• Warehouse → Shop")
+                st.markdown("• Distribution Center → Home")
+                st.markdown("• One package at a time")
+                
+                # Difficulty
+                difficulty = "Easy" if len(st.session_state.game.closed_roads) == 1 else "Medium" if len(st.session_state.game.closed_roads) == 2 else "Hard"
+                st.markdown(f"• **Difficulty:** {difficulty} ({len(st.session_state.game.closed_roads)} closure{'s' if len(st.session_state.game.closed_roads) > 1 else ''})")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Current route
+            if st.session_state.game.current_route:
+                st.markdown("### Your Route")
+                st.code(" → ".join(st.session_state.game.current_route))
+                
+                # Show route distance
+                total_distance = 0
+                route = st.session_state.game.current_route
+                for i in range(len(route) - 1):
+                    segment_distance = st.session_state.game.graph.get_edge_weight(route[i], route[i+1])
+                    if segment_distance:
+                        total_distance += segment_distance
+                
+                st.metric("Total Distance", f"{total_distance:.1f} cm")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Results Panel for completed game
+        elif st.session_state.game_results:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Challenge Complete!")
+            
+            results = st.session_state.game_results
+            
+            # Score display
+            st.markdown(f"""
+            <div style="text-align:center;margin-bottom:20px">
+                <div style="font-size:3rem;font-weight:bold;color:#1a56db">{results['score']}</div>
+                <div style="font-size:1rem;color:#6b7280">SCORE</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("Time", f"{results['time']:.1f}s")
+                st.metric("Your Distance", f"{results['player_distance']:.1f} cm")
+            with c2:
+                st.metric("Efficiency", f"{results['efficiency']}%")
+                st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
+            
+            # Special message for finding a better route
+            if results.get('found_better_route', False):
+                st.success("🏆 Congratulations! You found a more efficient route than the algorithm calculated!")
+            
+            # Tab for routes
+            route_tabs = st.tabs(["Your Route", "Optimal Route"])
+            
+            with route_tabs[0]:
+                st.markdown("**Your Route:**")
+                st.code(" → ".join(results['player_route']))
+                
+                # Show route segments
+                total_distance = 0
+                for i in range(len(results['player_route']) - 1):
+                    start = results['player_route'][i]
+                    end = results['player_route'][i+1]
+                    
+                    # We can get segment distance from the results
+                    segment_distance = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('distance', 0)
+                    total_distance += segment_distance
+                    
+                    st.markdown(f"**Step {i+1}:** {start} → {end} ({segment_distance} cm)")
+                
+                st.metric("Total Distance", f"{total_distance:.1f} cm")
+            
+            with route_tabs[1]:
+                st.markdown("**Optimal Route:**")
+                st.code(" → ".join(results['optimal_route']))
+                
+                # Show optimal route segments too
+                # This will need to be extracted from the optimal_route
+                st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
+            
+            # Play again button
+            if st.button("Play Again", type="primary", use_container_width=True):
+                st.session_state.game_results = None
+                st.rerun()
+                
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # New Game panel if no active game
+        else:
             # Player Registration Form
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Player Registration")
@@ -625,148 +587,6 @@ with tab1:
                         
                         st.rerun()
             
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        elif st.session_state.game and st.session_state.game.game_active:
-            # Game Info Panel
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            
-            game_status = st.session_state.game.get_game_status()
-            
-            st.markdown('<div class="status-bar">', unsafe_allow_html=True)
-            st.markdown(f"⏱ **Time:** {game_status['time']:.1f}s | 📦 **Packages:** {game_status['packages_delivered']}/{game_status['total_packages']} | 🌐 **Progress:** {game_status['progress']}%")
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            with st.expander("Game Info", expanded=True):
-                # Road closures
-                if st.session_state.game.closed_roads:
-                    st.markdown('<div class="road-closure-alert">⛔️ Road Closures:</div>', unsafe_allow_html=True)
-                    closures_text = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in st.session_state.game.closed_roads])
-                    st.markdown(closures_text)
-                
-                # Package info
-                st.markdown('<div class="package-info">', unsafe_allow_html=True)
-                if game_status['carrying_package']:
-                    carrying = st.session_state.game.package_manager.carrying
-                    st.markdown(f"🚚 **Carrying:** 📦 Package #{carrying.id} to {carrying.delivery}")
-                else:
-                    st.markdown("🚚 **Carrying:** No package")
-                
-                st.markdown(f"📦 **Delivered:** {game_status['packages_delivered']}/{game_status['total_packages']}")
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                # Constraints info
-                st.markdown('<div class="constraints-info">', unsafe_allow_html=True)
-                st.markdown("🔄 **Constraints:**")
-                st.markdown("• Warehouse → Shop")
-                st.markdown("• Distribution Center → Home")
-                st.markdown("• One package at a time")
-                
-                # Difficulty
-                difficulty = "Easy" if len(st.session_state.game.closed_roads) == 1 else "Medium" if len(st.session_state.game.closed_roads) == 2 else "Hard"
-                st.markdown(f"• **Difficulty:** {difficulty} ({len(st.session_state.game.closed_roads)} closure{'s' if len(st.session_state.game.closed_roads) > 1 else ''})")
-                
-                st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Current route
-            if st.session_state.game.current_route:
-                st.markdown("### Your Route")
-                st.code(" → ".join(st.session_state.game.current_route))
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        elif st.session_state.game_results:
-            # Game Results Panel
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("Challenge Complete!")
-            
-            results = st.session_state.game_results
-            
-            # Score display
-            st.markdown(f"""
-            <div style="text-align:center;margin-bottom:20px">
-                <div style="font-size:3rem;font-weight:bold;color:#1a56db">{results['score']}</div>
-                <div style="font-size:1rem;color:#6b7280">SCORE</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                st.metric("Time", f"{results['time']:.1f}s")
-                st.metric("Your Distance", f"{results['player_distance']:.1f} cm")
-            with c2:
-                st.metric("Efficiency", f"{results['efficiency']}%")
-                st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
-            
-            # Special message for finding a better route
-            if results.get('found_better_route', False):
-                st.success("🏆 Congratulations! You found a more efficient route than the algorithm calculated!")
-            
-            st.markdown("### Routes")
-            
-            player_col, optimal_col = st.columns(2)
-            
-            with player_col:
-                st.markdown("**Your Route:**")
-                st.code(" → ".join(results['player_route']))
-            
-            with optimal_col:
-                st.markdown("**Optimal Route:**")
-                st.code(" → ".join(results['optimal_route']))
-            
-            # Save to leaderboard if player info exists
-            if st.session_state.current_player:
-                player = st.session_state.current_player
-                
-                leaderboard_entry = {
-                    "name": player["name"],
-                    "email": player.get("email", ""),
-                    "company": player.get("company", ""),
-                    "score": results["score"],
-                    "efficiency": results["efficiency"],
-                    "time": results["time"],
-                    "difficulty": results["difficulty"],
-                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                
-                st.session_state.leaderboard.append(leaderboard_entry)
-                
-                # Sort leaderboard by score
-                st.session_state.leaderboard.sort(key=lambda x: x["score"], reverse=True)
-                
-                # Save to players data
-                if player["email"] not in st.session_state.players:
-                    st.session_state.players[player["email"]] = {
-                        "name": player["name"],
-                        "email": player["email"],
-                        "company": player.get("company", ""),
-                        "games": []
-                    }
-                
-                # Add game to player history
-                st.session_state.players[player["email"]]["games"].append({
-                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "score": results["score"],
-                    "efficiency": results["efficiency"],
-                    "time": results["time"],
-                    "difficulty": results["difficulty"],
-                    "player_route": results["player_route"],
-                    "player_distance": results["player_distance"],
-                    "optimal_distance": results["optimal_distance"]
-                })
-                
-                # Save to file
-                try:
-                    with open('player_data.json', 'w') as f:
-                        json.dump(st.session_state.players, f)
-                except Exception as e:
-                    st.error(f"Error saving player data: {e}")
-            
-            # Play again button
-            if st.button("Play Again", type="primary", use_container_width=True):
-                st.session_state.game_results = None
-                st.rerun()
-                
             st.markdown('</div>', unsafe_allow_html=True)
 
 # Leaderboard Tab
