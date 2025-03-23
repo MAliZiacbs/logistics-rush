@@ -360,6 +360,8 @@ with tab1:
                         if st.button(button_label, key=f"move_{location}", use_container_width=True):
                             result = st.session_state.game.move_to_location(location)
                             if result["success"]:
+                                if "constraint_violated" in result and result["constraint_violated"]:
+                                    st.warning(result["message"])
                                 if "game_completed" in result and result["game_completed"]:
                                     st.session_state.game_results = result["results"]
                                     st.session_state.game = None
@@ -368,6 +370,26 @@ with tab1:
                                 st.error(result["message"])
             else:
                 st.warning("No available moves from this location. You may have reached a dead end!")
+            
+            # Add Undo button if available
+            if st.session_state.game and st.session_state.game.game_active and st.session_state.game.undo_available and not st.session_state.game.undo_used:
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("⚠️ Constraint Violation Detected")
+                st.warning("You have made a move that violates game constraints. This may make it impossible to complete some deliveries.")
+                
+                if st.button("↩️ Undo Last Move (One-time use, -50% constraint score)", 
+                            key="undo_button", 
+                            type="primary", 
+                            use_container_width=True):
+                    result = st.session_state.game.undo_last_move()
+                    if result["success"]:
+                        st.success(result["message"])
+                        st.rerun()
+                    else:
+                        st.error(result["message"])
+                
+                st.info("Note: You can only undo once per game. A penalty will be applied to your final score.")
+                st.markdown('</div>', unsafe_allow_html=True)
             
             # Package Pickup/Delivery Actions
             if st.session_state.game.package_manager.carrying:
@@ -497,6 +519,24 @@ with tab1:
             with c2:
                 st.metric("Efficiency", f"{results['efficiency']}%")
                 st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
+            
+            # Display constraint penalty if undo was used
+            if results.get('undo_used', False):
+                with st.expander("Score Breakdown", expanded=True):
+                    st.markdown("### Score Components")
+                    st.markdown(f"- **Efficiency (40%)**: {results['efficiency']}%")
+                    st.markdown(f"- **Delivery (30%)**: 100%")
+                    st.markdown(f"- **Constraints (20%)**: {results['constraints_score']}% (Penalty applied for using undo)")
+                    
+                    # Calculate time score from results
+                    time_score = results['score'] - (
+                        (results['efficiency'] * 0.4) + 
+                        (100 * 0.3) + 
+                        (results['constraints_score'] * 0.2)
+                    ) / 0.1
+                    st.markdown(f"- **Time (10%)**: {int(time_score)}%")
+                    
+                    st.info("You used your one-time undo after violating a constraint. This resulted in a 50% penalty to your constraints score.")
             
             # Special message for finding a better route
             if results.get('found_better_route', False):
@@ -669,6 +709,10 @@ with tab3:
     Your score is based on efficiency (40%), package delivery (30%), following constraints (20%), and time (10%).
     
     Try to find a more efficient route than the AI's calculated optimal path to earn a perfect efficiency score!
+    
+    ### Constraint Violations
+    If you violate a constraint (like visiting Shop before Warehouse), you'll have one opportunity to undo your move.
+    Using the undo will apply a 50% penalty to your constraints score component.
     """)
 
 # Diagnostics Tab
