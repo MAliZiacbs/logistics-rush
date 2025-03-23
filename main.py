@@ -456,34 +456,20 @@ with tab1:
                         if st.button(button_label, key=f"move_{location}", use_container_width=True):
                             # Show warning if this move would violate a constraint
                             if move.get("violates_constraint", False):
-                                st.warning(f"⚠️ WARNING: {move['constraint_message']} This will reduce your final score.")
-                                st.warning("Do you still want to proceed?")
-                                
-                                # Use direct buttons instead of nested columns
-                                if st.button("Yes, proceed anyway", key=f"confirm_{location}", type="primary"):
-                                    result = st.session_state.game.move_to_location(location)
-                                    if result["success"]:
-                                        if "game_completed" in result and result["game_completed"]:
-                                            st.session_state.game_results = result["results"]
-                                            st.session_state.game = None
-                                        st.rerun()
-                                    else:
-                                        st.error(result["message"])
-                                
-                                if st.button("No, cancel", key=f"cancel_{location}"):
-                                    st.rerun()
+                                # Just show a warning and proceed immediately
+                                st.warning(f"⚠️ WARNING: {move['constraint_message']} Your score will be reduced.")
+                            
+                            # Process the move
+                            result = st.session_state.game.move_to_location(location)
+                            if result["success"]:
+                                if "constraint_violated" in result and result["constraint_violated"]:
+                                    st.warning(result["message"])
+                                if "game_completed" in result and result["game_completed"]:
+                                    st.session_state.game_results = result["results"]
+                                    st.session_state.game = None
+                                st.rerun()
                             else:
-                                # Regular move with no constraints
-                                result = st.session_state.game.move_to_location(location)
-                                if result["success"]:
-                                    if "constraint_violated" in result and result["constraint_violated"]:
-                                        st.warning(result["message"])
-                                    if "game_completed" in result and result["game_completed"]:
-                                        st.session_state.game_results = result["results"]
-                                        st.session_state.game = None
-                                    st.rerun()
-                                else:
-                                    st.error(result["message"])
+                                st.error(result["message"])
             else:
                 st.warning("No available moves from this location. You may have reached a dead end!")
             
