@@ -372,8 +372,9 @@ with tab1:
     # Create three columns with appropriate width ratios
     control_col, map_col, info_col = st.columns([1, 2, 1])  # Controls, Map, Game Info
     
+    # === LEFT COLUMN: GAME CONTROLS ===
     with control_col:
-        # Left Column: Game Controls
+        # Only show controls during active gameplay
         if st.session_state.game and st.session_state.game.game_active:
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Game Controls")
@@ -510,65 +511,6 @@ with tab1:
                     st.markdown(f'<div class="constraint-warning">{constraint[0]} must be visited before {constraint[1]} - Violated!</div>', unsafe_allow_html=True)
             
             st.markdown('</div>', unsafe_allow_html=True)
-        elif not st.session_state.game_results:
-            # New Game panel if no active game
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("Player Registration")
-            
-            with st.form("registration_form"):
-                name = st.text_input("Name*")
-                email = st.text_input("Email*")
-                company = st.text_input("Company")
-                
-                # Add privacy notice
-                st.caption("Game results will be used for analytics and leaderboard. Your data is stored securely.")
-                
-                st.subheader("Game Challenge")
-                st.markdown("Master all logistics challenges in one comprehensive experience")
-                
-                difficulty = st.radio("Select Difficulty Level", 
-                                    ["Easy (1 road closure, no constraints)", 
-                                     "Medium (2 road closures, 1 constraint)", 
-                                     "Hard (3 road closures, 2 constraints)"],
-                                    index=0)
-                
-                # Extract number from difficulty
-                if "Easy" in difficulty:
-                    num_closures = 1
-                elif "Medium" in difficulty:
-                    num_closures = 2
-                else:
-                    num_closures = 3
-                
-                submit = st.form_submit_button("Start Game", type="primary")
-                
-                if submit:
-                    if not name or not email:
-                        st.error("Please enter your name and email")
-                    else:
-                        # Create and start a new game
-                        st.session_state.game = LogisticsRushGame(
-                            LOCATIONS, ROAD_SEGMENTS, DISTANCES, difficulty=num_closures
-                        )
-                        game_info = st.session_state.game.start_game()
-                        
-                        # Store player info
-                        st.session_state.current_player = {
-                            "name": name,
-                            "email": email,
-                            "company": company
-                        }
-                        
-                        # Add player info to game for export
-                        st.session_state.game.player_info = {
-                            "player_name": name,
-                            "email": email,
-                            "company": company
-                        }
-                        
-                        st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
         elif st.session_state.game_results:
             # Show Play Again button in the controls column
             st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -580,8 +522,8 @@ with tab1:
             
             st.markdown('</div>', unsafe_allow_html=True)
     
+    # === MIDDLE COLUMN: MAP VISUALIZATION ===
     with map_col:
-        # Middle Column: Map Section
         st.markdown('<div class="card">', unsafe_allow_html=True)
         
         if st.session_state.game and st.session_state.game.game_active:
@@ -633,9 +575,10 @@ with tab1:
             st.metric("Total Distance", f"{total_distance:.1f} cm")
             st.markdown('</div>', unsafe_allow_html=True)
     
+    # === RIGHT COLUMN: INFO PANEL OR REGISTRATION ===
     with info_col:
-        # Right Column: Game Info Panel
         if st.session_state.game and st.session_state.game.game_active:
+            # Game Info Panel
             st.markdown('<div class="card">', unsafe_allow_html=True)
             
             game_status = st.session_state.game.get_game_status()
@@ -766,6 +709,66 @@ with tab1:
                         location, action, pkg_id = op
                         action_icon = "📦➡️" if action == "pickup" else "📦✅"
                         st.markdown(f"- {action_icon} {action.capitalize()} Package #{pkg_id} at {location}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Player Registration - kept on right side (original location)
+        else:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Player Registration")
+            
+            with st.form("registration_form"):
+                name = st.text_input("Name*")
+                email = st.text_input("Email*")
+                company = st.text_input("Company")
+                
+                # Add privacy notice
+                st.caption("Game results will be used for analytics and leaderboard. Your data is stored securely.")
+                
+                st.subheader("Game Challenge")
+                st.markdown("Master all logistics challenges in one comprehensive experience")
+                
+                difficulty = st.radio("Select Difficulty Level", 
+                                    ["Easy (1 road closure, no constraints)", 
+                                     "Medium (2 road closures, 1 constraint)", 
+                                     "Hard (3 road closures, 2 constraints)"],
+                                    index=0)
+                
+                # Extract number from difficulty
+                if "Easy" in difficulty:
+                    num_closures = 1
+                elif "Medium" in difficulty:
+                    num_closures = 2
+                else:
+                    num_closures = 3
+                
+                submit = st.form_submit_button("Start Game", type="primary")
+                
+                if submit:
+                    if not name or not email:
+                        st.error("Please enter your name and email")
+                    else:
+                        # Create and start a new game
+                        st.session_state.game = LogisticsRushGame(
+                            LOCATIONS, ROAD_SEGMENTS, DISTANCES, difficulty=num_closures
+                        )
+                        game_info = st.session_state.game.start_game()
+                        
+                        # Store player info
+                        st.session_state.current_player = {
+                            "name": name,
+                            "email": email,
+                            "company": company
+                        }
+                        
+                        # Add player info to game for export
+                        st.session_state.game.player_info = {
+                            "player_name": name,
+                            "email": email,
+                            "company": company
+                        }
+                        
+                        st.rerun()
             
             st.markdown('</div>', unsafe_allow_html=True)
 
