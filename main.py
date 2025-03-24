@@ -367,70 +367,20 @@ st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe
 # Create tabs
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics", "Databricks Insights"])
 
-# Game Tab
+# Game Tab - NEW THREE COLUMN LAYOUT
 with tab1:
-    col1, col2 = st.columns([2, 1])  # Left column for map, right for controls/info
+    # Create three columns with appropriate width ratios
+    control_col, map_col, info_col = st.columns([1, 2, 1])  # Controls, Map, Game Info
     
-    with col1:
-        # Map Section
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        
-        if st.session_state.game and st.session_state.game.game_active:
-            # Show active game map
-            current_location = st.session_state.game.current_location
-            available_moves = st.session_state.game.get_available_moves()
-            
-            map_fig = visualize_map(
-                current_location=current_location,
-                available_moves=available_moves,
-                route=st.session_state.game.current_route,
-                closed_roads=st.session_state.game.closed_roads,
-                locations=LOCATIONS
-            )
-            st.plotly_chart(map_fig, use_container_width=True)
-            
-        elif st.session_state.game_results:
-            # Show comparison map with player and optimal routes
-            map_fig = visualize_map(
-                route=st.session_state.game_results["player_route"],
-                optimal_route=st.session_state.game_results["optimal_route"],
-                closed_roads=st.session_state.game_results["closed_roads"],
-                locations=LOCATIONS,
-                show_both=True
-            )
-            st.plotly_chart(map_fig, use_container_width=True)
-            
-        else:
-            # Show blank map
-            map_fig = visualize_map(locations=LOCATIONS)
-            st.plotly_chart(map_fig, use_container_width=True)
-            
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Action controls for active game
+    with control_col:
+        # Left Column: Game Controls
         if st.session_state.game and st.session_state.game.game_active:
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("Actions")
+            st.subheader("Game Controls")
             
             # Current location
             current_location = st.session_state.game.current_location
             st.info(f"Current Location: {current_location}")
-            
-            # Show active constraints based on difficulty
-            active_constraints = st.session_state.game.constraints.get_active_constraints()
-            if active_constraints:
-                st.subheader("Active Constraints")
-                for constraint in active_constraints:
-                    st.info(f"{constraint[0]} must be visited before {constraint[1]}")
-            
-            # Show constraint violations
-            violated_constraints = st.session_state.game.violated_constraints
-            if violated_constraints:
-                st.subheader("⚠️ Constraint Violations")
-                for constraint in violated_constraints:
-                    st.markdown(f'<div class="constraint-warning">{constraint[0]} must be visited before {constraint[1]} - Violated!</div>', unsafe_allow_html=True)
-                
-                st.warning("Constraint violations will reduce your final score.")
             
             # Movement buttons
             available_moves = st.session_state.game.get_available_moves()
@@ -438,69 +388,64 @@ with tab1:
             if available_moves:
                 st.subheader("Available Moves")
                 
-                # Create 2 columns for moves
-                move_cols = st.columns(2)
-                
-                # Distribute moves across columns
-                for i, move in enumerate(available_moves):
-                    col_idx = i % 2
-                    with move_cols[col_idx]:
-                        location = move["location"]
-                        distance = move["distance"]
-                        has_packages = move["has_packages"]
-                        
-                        button_label = f"{LOCATIONS[location]['emoji']} {location} ({distance} cm)"
-                        if has_packages:
-                            button_label += " 📦"
-                        
-                        # Add warning indicator for constraint violations
+                for move in available_moves:
+                    location = move["location"]
+                    distance = move["distance"]
+                    has_packages = move["has_packages"]
+                    
+                    button_label = f"{LOCATIONS[location]['emoji']} {location} ({distance} cm)"
+                    if has_packages:
+                        button_label += " 📦"
+                    
+                    # Add warning indicator for constraint violations
+                    if move.get("violates_constraint", False):
+                        button_label += " ⚠️"
+                    
+                    if st.button(button_label, key=f"move_{location}", use_container_width=True):
+                        # Show warning if this move would violate a constraint
                         if move.get("violates_constraint", False):
-                            button_label += " ⚠️"
+                            st.warning(f"⚠️ WARNING: {move['constraint_message']} Your score will be reduced.")
                         
-                        if st.button(button_label, key=f"move_{location}", use_container_width=True):
-                            # Show warning if this move would violate a constraint
-                            if move.get("violates_constraint", False):
-                                # Just show a warning and proceed immediately
-                                st.warning(f"⚠️ WARNING: {move['constraint_message']} Your score will be reduced.")
-                            
-                            # Process the move
-                            result = st.session_state.game.move_to_location(location)
-                            if result["success"]:
-                                if "constraint_violated" in result and result["constraint_violated"]:
-                                    st.warning(result["message"])
-                                if "game_completed" in result and result["game_completed"]:
-                                    st.session_state.game_results = result["results"]
+                        # Process the move
+                        result = st.session_state.game.move_to_location(location)
+                        if result["success"]:
+                            if "constraint_violated" in result and result["constraint_violated"]:
+                                st.warning(result["message"])
+                            if "game_completed" in result and result["game_completed"]:
+                                st.session_state.game_results = result["results"]
+                                
+                                # Add to leaderboard
+                                if st.session_state.current_player and st.session_state.game_results:
+                                    leaderboard_entry = leaderboard_manager.add_leaderboard_entry(
+                                        st.session_state.current_player,
+                                        st.session_state.game_results
+                                    )
                                     
-                                    # Add to leaderboard
-                                    if st.session_state.current_player and st.session_state.game_results:
-                                        leaderboard_entry = leaderboard_manager.add_leaderboard_entry(
-                                            st.session_state.current_player,
-                                            st.session_state.game_results
-                                        )
-                                        
-                                        # Also add to session state leaderboard for immediate display
-                                        if 'leaderboard' not in st.session_state:
-                                            st.session_state.leaderboard = []
-                                        st.session_state.leaderboard.append(leaderboard_entry)
-                                    
-                                    st.session_state.game = None
-                                st.rerun()
-                            else:
-                                st.error(result["message"])
+                                    # Add to session state leaderboard
+                                    if 'leaderboard' not in st.session_state:
+                                        st.session_state.leaderboard = []
+                                    st.session_state.leaderboard.append(leaderboard_entry)
+                                
+                                st.session_state.game = None
+                            st.rerun()
+                        else:
+                            st.error(result["message"])
             else:
                 st.warning("No available moves from this location. You may have reached a dead end!")
             
             # Package Pickup/Delivery Actions
+            st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
+            st.subheader("Package Actions")
+            
             if st.session_state.game.package_manager.carrying:
                 # Show delivery option if at the right location
                 carrying = st.session_state.game.package_manager.carrying
                 
                 if carrying.delivery == current_location:
-                    st.subheader("Deliver Package")
-                    if st.button(f"Deliver Package #{carrying.id} to {carrying.delivery}", 
-                                key="deliver_package", 
-                                type="primary", 
-                                use_container_width=True):
+                    if st.button(f"📦 Deliver Package #{carrying.id} to {carrying.delivery}", 
+                              key="deliver_package", 
+                              type="primary", 
+                              use_container_width=True):
                         result = st.session_state.game.deliver_package()
                         
                         if result["success"]:
@@ -516,7 +461,6 @@ with tab1:
                                         st.session_state.game_results
                                     )
                                     
-                                    # Also add to session state leaderboard for immediate display
                                     if 'leaderboard' not in st.session_state:
                                         st.session_state.leaderboard = []
                                     st.session_state.leaderboard.append(leaderboard_entry)
@@ -533,13 +477,11 @@ with tab1:
                 available_packages = st.session_state.game.package_manager.get_available_pickups(current_location)
                 
                 if available_packages:
-                    st.subheader("Pickup Package")
-                    
                     for pkg in available_packages:
-                        if st.button(f"📦 Package #{pkg.id} to {pkg.delivery}", 
-                                    key=f"pickup_{pkg.id}", 
-                                    type="primary", 
-                                    use_container_width=True):
+                        if st.button(f"📦 Pick up Package #{pkg.id} to {pkg.delivery}", 
+                                  key=f"pickup_{pkg.id}", 
+                                  type="primary", 
+                                  use_container_width=True):
                             result = st.session_state.game.pickup_package(pkg.id)
                             
                             if result["success"]:
@@ -547,172 +489,29 @@ with tab1:
                                 st.rerun()
                             else:
                                 st.error(result["message"])
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-    
-    with col2:
-        # Game Info Panel for active game
-        if st.session_state.game and st.session_state.game.game_active:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            
-            game_status = st.session_state.game.get_game_status()
-            
-            st.markdown('<div class="status-bar">', unsafe_allow_html=True)
-            st.markdown(f"⏱ **Time:** {game_status['time']:.1f}s | 📦 **Packages:** {game_status['packages_delivered']}/{game_status['total_packages']} | 🌐 **Progress:** {game_status['progress']}%")
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            with st.expander("Game Info", expanded=True):
-                # Road closures
-                if st.session_state.game.closed_roads:
-                    st.markdown('<div class="road-closure-alert">⛔️ Road Closures:</div>', unsafe_allow_html=True)
-                    closures_text = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in st.session_state.game.closed_roads])
-                    st.markdown(closures_text)
-                
-                # Package info
-                st.markdown('<div class="package-info">', unsafe_allow_html=True)
-                if game_status['carrying_package']:
-                    carrying = st.session_state.game.package_manager.carrying
-                    st.markdown(f"🚚 **Carrying:** 📦 Package #{carrying.id} to {carrying.delivery}")
                 else:
-                    st.markdown("🚚 **Carrying:** No package")
+                    st.info("No packages to pick up here.")
+                    
+            # Show active constraints based on difficulty
+            st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
+            st.subheader("Active Constraints")
+            active_constraints = st.session_state.game.constraints.get_active_constraints()
+            if active_constraints:
+                for constraint in active_constraints:
+                    st.info(f"{constraint[0]} must be visited before {constraint[1]}")
+            else:
+                st.info("No ordering constraints in this difficulty level.")
                 
-                st.markdown(f"📦 **Delivered:** {game_status['packages_delivered']}/{game_status['total_packages']}")
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                # Constraints info
-                st.markdown('<div class="constraints-info">', unsafe_allow_html=True)
-                
-                # Show constraints based on difficulty
-                active_constraints = game_status.get('active_constraints', [])
-                st.markdown("🔄 **Constraints:**")
-                
-                if active_constraints:
-                    for constraint in active_constraints:
-                        st.markdown(f"• {constraint[0]} → {constraint[1]}")
-                else:
-                    st.markdown("• No ordering constraints in Easy mode")
-                
-                st.markdown("• One package at a time")
-                
-                # Difficulty
-                difficulty_names = {1: "Easy", 2: "Medium", 3: "Hard"}
-                difficulty = difficulty_names.get(st.session_state.game.difficulty, "Easy")
-                st.markdown(f"• **Difficulty:** {difficulty} ({len(st.session_state.game.closed_roads)} closure{'s' if len(st.session_state.game.closed_roads) > 1 else ''})")
-                
-                st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Current route
-            if st.session_state.game.current_route:
-                st.markdown("### Your Route")
-                st.code(" → ".join(st.session_state.game.current_route))
-                
-                # Show route distance
-                total_distance = 0
-                route = st.session_state.game.current_route
-                for i in range(len(route) - 1):
-                    segment_distance = st.session_state.game.graph.get_edge_weight(route[i], route[i+1])
-                    if segment_distance:
-                        total_distance += segment_distance
-                
-                st.metric("Total Distance", f"{total_distance:.1f} cm")
+            # Show constraint violations
+            violated_constraints = st.session_state.game.violated_constraints
+            if violated_constraints:
+                st.subheader("⚠️ Constraint Violations")
+                for constraint in violated_constraints:
+                    st.markdown(f'<div class="constraint-warning">{constraint[0]} must be visited before {constraint[1]} - Violated!</div>', unsafe_allow_html=True)
             
             st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Results Panel for completed game
-        elif st.session_state.game_results:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("Challenge Complete!")
-            
-            results = st.session_state.game_results
-            
-            # Score display
-            st.markdown(f"""
-            <div style="text-align:center;margin-bottom:20px">
-                <div style="font-size:3rem;font-weight:bold;color:#1a56db">{results['score']}</div>
-                <div style="font-size:1rem;color:#6b7280">SCORE</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                st.metric("Time", f"{results['time']:.1f}s")
-                st.metric("Your Distance", f"{results['player_distance']:.1f} cm")
-            with c2:
-                st.metric("Efficiency", f"{results['efficiency']}%")
-                st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
-            
-            # Display constraint violations if any occurred
-            if results.get('active_constraints') and results.get('violated_constraints'):
-                violated_count = len(results.get('violated_constraints', []))
-                if violated_count > 0:
-                    st.warning(f"You violated {violated_count} constraint(s), reducing your score.")
-                    
-                    with st.expander("Score Breakdown"):
-                        st.markdown("### Score Components")
-                        st.markdown(f"- **Efficiency (40%)**: {results['efficiency']}%")
-                        st.markdown(f"- **Delivery (30%)**: 100%")
-                        st.markdown(f"- **Constraints (20%)**: {results['constraints_score']}% (Penalty for {violated_count} violation(s))")
-                        
-                        # Calculate time score from results
-                        time_score = results['score'] - (
-                            (results['efficiency'] * 0.4) + 
-                            (100 * 0.3) + 
-                            (results['constraints_score'] * 0.2)
-                        ) / 0.1
-                        st.markdown(f"- **Time (10%)**: {int(time_score)}%")
-                        
-                        for constraint in results.get('violated_constraints', []):
-                            st.error(f"Violated: {constraint[0]} must be visited before {constraint[1]}")
-            
-            # Special message for finding a better route
-            if results.get('found_better_route', False):
-                st.success("🏆 Congratulations! You found a more efficient route than the algorithm calculated!")
-            
-            # Tab for routes
-            route_tabs = st.tabs(["Your Route", "Optimal Route"])
-            
-            with route_tabs[0]:
-                st.markdown("**Your Route:**")
-                st.code(" → ".join(results['player_route']))
-                
-                # Show route segments
-                total_distance = 0
-                for i in range(len(results['player_route']) - 1):
-                    start = results['player_route'][i]
-                    end = results['player_route'][i+1]
-                    
-                    # We can get segment distance from the results
-                    segment_distance = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('distance', 0)
-                    total_distance += segment_distance
-                    
-                    # Check if this move violated a constraint
-                    violated_constraint = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('violated_constraint')
-                    violation_info = ""
-                    if violated_constraint:
-                        violation_info = f" ⚠️ Violated constraint: {violated_constraint[0]} → {violated_constraint[1]}"
-                    
-                    st.markdown(f"**Step {i+1}:** {start} → {end} ({segment_distance} cm){violation_info}")
-                
-                st.metric("Total Distance", f"{total_distance:.1f} cm")
-            
-            with route_tabs[1]:
-                st.markdown("**Optimal Route:**")
-                st.code(" → ".join(results['optimal_route']))
-                
-                # Show optimal route segments too
-                # This will need to be extracted from the optimal_route
-                st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
-            
-            # Play again button
-            if st.button("Play Again", type="primary", use_container_width=True):
-                st.session_state.game_results = None
-                st.rerun()
-                
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        # New Game panel if no active game
-        else:
-            # Player Registration Form
+        elif not st.session_state.game_results:
+            # New Game panel if no active game
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Player Registration")
             
@@ -768,6 +567,205 @@ with tab1:
                         }
                         
                         st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        elif st.session_state.game_results:
+            # Show Play Again button in the controls column
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Game Complete!")
+            
+            if st.button("Play Again", type="primary", use_container_width=True):
+                st.session_state.game_results = None
+                st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+    with map_col:
+        # Middle Column: Map Section
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        
+        if st.session_state.game and st.session_state.game.game_active:
+            # Show active game map
+            current_location = st.session_state.game.current_location
+            available_moves = st.session_state.game.get_available_moves()
+            
+            map_fig = visualize_map(
+                current_location=current_location,
+                available_moves=available_moves,
+                route=st.session_state.game.current_route,
+                closed_roads=st.session_state.game.closed_roads,
+                locations=LOCATIONS
+            )
+            st.plotly_chart(map_fig, use_container_width=True)
+            
+        elif st.session_state.game_results:
+            # Show comparison map with player and optimal routes
+            map_fig = visualize_map(
+                route=st.session_state.game_results["player_route"],
+                optimal_route=st.session_state.game_results["optimal_route"],
+                closed_roads=st.session_state.game_results["closed_roads"],
+                locations=LOCATIONS,
+                show_both=True
+            )
+            st.plotly_chart(map_fig, use_container_width=True)
+            
+        else:
+            # Show blank map
+            map_fig = visualize_map(locations=LOCATIONS)
+            st.plotly_chart(map_fig, use_container_width=True)
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Current route display below the map
+        if st.session_state.game and st.session_state.game.game_active and st.session_state.game.current_route:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown("### Your Route")
+            st.code(" → ".join(st.session_state.game.current_route))
+            
+            # Show route distance
+            total_distance = 0
+            route = st.session_state.game.current_route
+            for i in range(len(route) - 1):
+                segment_distance = st.session_state.game.graph.get_edge_weight(route[i], route[i+1])
+                if segment_distance:
+                    total_distance += segment_distance
+            
+            st.metric("Total Distance", f"{total_distance:.1f} cm")
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+    with info_col:
+        # Right Column: Game Info Panel
+        if st.session_state.game and st.session_state.game.game_active:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            
+            game_status = st.session_state.game.get_game_status()
+            
+            st.markdown('<div class="status-bar">', unsafe_allow_html=True)
+            st.markdown(f"⏱ **Time:** {game_status['time']:.1f}s | 📦 **Packages:** {game_status['packages_delivered']}/{game_status['total_packages']} | 🌐 **Progress:** {game_status['progress']}%")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Road closures
+            if st.session_state.game.closed_roads:
+                st.markdown('<div class="road-closure-alert">⛔️ Road Closures:</div>', unsafe_allow_html=True)
+                closures_text = ", ".join([f"{road[0]} ↔️ {road[1]}" for road in st.session_state.game.closed_roads])
+                st.markdown(closures_text)
+            
+            # Package info
+            st.markdown('<div class="package-info">', unsafe_allow_html=True)
+            if game_status['carrying_package']:
+                carrying = st.session_state.game.package_manager.carrying
+                st.markdown(f"🚚 **Carrying:** 📦 Package #{carrying.id} to {carrying.delivery}")
+            else:
+                st.markdown("🚚 **Carrying:** No package")
+            
+            st.markdown(f"📦 **Delivered:** {game_status['packages_delivered']}/{game_status['total_packages']}")
+            
+            # Display all packages status
+            packages = st.session_state.game.package_manager.get_package_info()
+            st.markdown("### Package Status")
+            for pkg in packages:
+                icon = "✅" if pkg["status"] == "delivered" else "🚚" if pkg["status"] == "picked_up" else "⏳"
+                st.markdown(f"{icon} **Package #{pkg['id']}**: {pkg['pickup']} → {pkg['delivery']} ({pkg['status']})")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Difficulty
+            difficulty_names = {1: "Easy", 2: "Medium", 3: "Hard"}
+            difficulty = difficulty_names.get(st.session_state.game.difficulty, "Easy")
+            st.markdown(f"**Difficulty:** {difficulty} ({len(st.session_state.game.closed_roads)} closure{'s' if len(st.session_state.game.closed_roads) > 1 else ''})")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Results Panel for completed game
+        elif st.session_state.game_results:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Challenge Complete!")
+            
+            results = st.session_state.game_results
+            
+            # Score display
+            st.markdown(f"""
+            <div style="text-align:center;margin-bottom:20px">
+                <div style="font-size:3rem;font-weight:bold;color:#1a56db">{results['score']}</div>
+                <div style="font-size:1rem;color:#6b7280">SCORE</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Results metrics
+            st.metric("Time", f"{results['time']:.1f}s")
+            st.metric("Your Distance", f"{results['player_distance']:.1f} cm")
+            st.metric("Efficiency", f"{results['efficiency']}%")
+            st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
+            
+            # Display constraint violations if any occurred
+            if results.get('active_constraints') and results.get('violated_constraints'):
+                violated_count = len(results.get('violated_constraints', []))
+                if violated_count > 0:
+                    st.warning(f"You violated {violated_count} constraint(s), reducing your score.")
+                    
+                    with st.expander("Score Breakdown"):
+                        st.markdown("### Score Components")
+                        st.markdown(f"- **Efficiency (40%)**: {results['efficiency']}%")
+                        st.markdown(f"- **Delivery (30%)**: 100%")
+                        st.markdown(f"- **Constraints (20%)**: {results['constraints_score']}% (Penalty for {violated_count} violation(s))")
+                        
+                        # Calculate time score from results
+                        time_score = results['score'] - (
+                            (results['efficiency'] * 0.4) + 
+                            (100 * 0.3) + 
+                            (results['constraints_score'] * 0.2)
+                        ) / 0.1
+                        st.markdown(f"- **Time (10%)**: {int(time_score)}%")
+                        
+                        for constraint in results.get('violated_constraints', []):
+                            st.error(f"Violated: {constraint[0]} must be visited before {constraint[1]}")
+            
+            # Special message for finding a better route
+            if results.get('found_better_route', False):
+                st.success("🏆 Congratulations! You found a more efficient route than the algorithm calculated!")
+                
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Routes comparison
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            route_tabs = st.tabs(["Your Route", "Optimal Route"])
+            
+            with route_tabs[0]:
+                st.markdown("**Your Route:**")
+                st.code(" → ".join(results['player_route']))
+                
+                # Show route segments
+                total_distance = 0
+                for i in range(len(results['player_route']) - 1):
+                    start = results['player_route'][i]
+                    end = results['player_route'][i+1]
+                    
+                    # We can get segment distance from the results
+                    segment_distance = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('distance', 0)
+                    total_distance += segment_distance
+                    
+                    # Check if this move violated a constraint
+                    violated_constraint = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('violated_constraint')
+                    violation_info = ""
+                    if violated_constraint:
+                        violation_info = f" ⚠️ Violated constraint: {violated_constraint[0]} → {violated_constraint[1]}"
+                    
+                    st.markdown(f"**Step {i+1}:** {start} → {end} ({segment_distance} cm){violation_info}")
+            
+            with route_tabs[1]:
+                st.markdown("**Optimal Route:**")
+                st.code(" → ".join(results['optimal_route']))
+                
+                # Show optimal route segments
+                st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
+                
+                # Show package operations if available
+                if 'optimal_package_operations' in results:
+                    st.markdown("**Optimal Package Operations:**")
+                    for op in results['optimal_package_operations']:
+                        location, action, pkg_id = op
+                        action_icon = "📦➡️" if action == "pickup" else "📦✅"
+                        st.markdown(f"- {action_icon} {action.capitalize()} Package #{pkg_id} at {location}")
             
             st.markdown('</div>', unsafe_allow_html=True)
 
