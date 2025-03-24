@@ -7,7 +7,7 @@ from datetime import datetime
 from azure.storage.blob import ContentSettings
 from azure_storage import get_blob_service_client
 
-CONTAINER_NAME = "gamedata"
+CONTAINER_NAME = "leaderboard"
 LEADERBOARD_BLOB_NAME = "leaderboard.csv"
 
 def add_leaderboard_entry(player_info, game_results):
@@ -76,7 +76,7 @@ def export_entry_to_azure(entry):
         container_client = blob_service_client.get_container_client(CONTAINER_NAME)
         
         # Create a unique filename for this entry
-        filename = f"leaderboard/{entry['player_id']}.json"
+        filename = f"{entry['player_id']}.json"
         
         # Convert entry to JSON string
         json_data = json.dumps(entry)
