@@ -6,6 +6,7 @@ from package_manager import PackageManager
 from constraints_manager import ConstraintsManager
 from route_optimizer import RouteOptimizer
 from config import DIFFICULTY_CONSTRAINTS, CONSTRAINT_VIOLATION_PENALTY
+import data_exporter
 
 class LogisticsRushGame:
     def __init__(self, locations, road_segments, distances, difficulty=1):
@@ -342,7 +343,7 @@ class LogisticsRushGame:
             "active_constraints": self.constraints.get_active_constraints()
         }
         
-        return {
+        results = {
             "time": game_time,
             "player_route": self.current_route,
             "player_distance": player_distance,
@@ -360,6 +361,17 @@ class LogisticsRushGame:
             "active_constraints": self.constraints.get_active_constraints(),
             "enhanced_diagnostics": diagnostics
         }
+        
+        # Add player info to results if available
+        if hasattr(self, 'player_info'):
+            results.update(self.player_info)
+        else:
+            results['player_name'] = 'anonymous'
+        
+        # Export to Azure
+        data_exporter.export_game_results(results)
+        
+        return results
     
     def get_game_status(self):
         """Get current game status"""

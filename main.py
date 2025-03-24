@@ -8,7 +8,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from io import StringIO
 
-# Import our new modules
+# Import our modules
 from config import LOCATIONS, ROAD_SEGMENTS, DISTANCES, STYLES, DIFFICULTY_CONSTRAINTS
 from logistics_graph import LogisticsGraph
 from package_manager import PackageManager
@@ -16,6 +16,11 @@ from constraints_manager import ConstraintsManager
 from route_optimizer import RouteOptimizer
 from game_engine import LogisticsRushGame
 from visualization import visualize_map
+
+# Import new Databricks integration modules
+import data_exporter
+import leaderboard_manager
+import insights_fetcher
 
 # Page configuration
 st.set_page_config(page_title="Logistics Rush", page_icon="🚚", layout="wide")
@@ -360,9 +365,8 @@ st.markdown('<h1 class="main-title">🚚 Logistics Rush</h1>', unsafe_allow_html
 st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe_allow_html=True)
 
 # Create tabs
-tab1, tab2, tab3, tab4 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics", "Databricks Insights"])
 
-# Game Tab
 # Game Tab
 with tab1:
     col1, col2 = st.columns([2, 1])  # Left column for map, right for controls/info
@@ -466,6 +470,19 @@ with tab1:
                                     st.warning(result["message"])
                                 if "game_completed" in result and result["game_completed"]:
                                     st.session_state.game_results = result["results"]
+                                    
+                                    # Add to leaderboard
+                                    if st.session_state.current_player and st.session_state.game_results:
+                                        leaderboard_entry = leaderboard_manager.add_leaderboard_entry(
+                                            st.session_state.current_player,
+                                            st.session_state.game_results
+                                        )
+                                        
+                                        # Also add to session state leaderboard for immediate display
+                                        if 'leaderboard' not in st.session_state:
+                                            st.session_state.leaderboard = []
+                                        st.session_state.leaderboard.append(leaderboard_entry)
+                                    
                                     st.session_state.game = None
                                 st.rerun()
                             else:
@@ -491,6 +508,19 @@ with tab1:
                             
                             if "game_completed" in result and result["game_completed"]:
                                 st.session_state.game_results = result["results"]
+                                
+                                # Add to leaderboard
+                                if st.session_state.current_player and st.session_state.game_results:
+                                    leaderboard_entry = leaderboard_manager.add_leaderboard_entry(
+                                        st.session_state.current_player,
+                                        st.session_state.game_results
+                                    )
+                                    
+                                    # Also add to session state leaderboard for immediate display
+                                    if 'leaderboard' not in st.session_state:
+                                        st.session_state.leaderboard = []
+                                    st.session_state.leaderboard.append(leaderboard_entry)
+                                
                                 st.session_state.game = None
                             
                             st.rerun()
@@ -691,6 +721,9 @@ with tab1:
                 email = st.text_input("Email*")
                 company = st.text_input("Company")
                 
+                # Add privacy notice
+                st.caption("Game results will be used for analytics and leaderboard. Your data is stored securely.")
+                
                 st.subheader("Game Challenge")
                 st.markdown("Master all logistics challenges in one comprehensive experience")
                 
@@ -727,6 +760,13 @@ with tab1:
                             "company": company
                         }
                         
+                        # Add player info to game for export
+                        st.session_state.game.player_info = {
+                            "player_name": name,
+                            "email": email,
+                            "company": company
+                        }
+                        
                         st.rerun()
             
             st.markdown('</div>', unsafe_allow_html=True)
@@ -735,6 +775,21 @@ with tab1:
 with tab2:
     st.subheader("Leaderboard")
     
+    # Add a refresh button
+    if st.button("🔄 Refresh Leaderboard Data"):
+        # Fetch latest data from Databricks
+        st.session_state.leaderboard = leaderboard_manager.fetch_leaderboard()
+        st.success("Leaderboard refreshed!")
+    
+    # Add CSV download button
+    csv_data = leaderboard_manager.get_leaderboard_csv()
+    st.download_button(
+        label="📥 Download Leaderboard as CSV",
+        data=csv_data,
+        file_name="logistics_rush_leaderboard.csv",
+        mime="text/csv",
+    )
+    
     # Filter controls
     lb_col1, lb_col2 = st.columns(2)
     with lb_col1:
@@ -742,9 +797,14 @@ with tab2:
     with lb_col2:
         # Get all companies
         companies = ["All Companies"]
-        for player in st.session_state.players.values():
-            if player.get("company") and player["company"] not in companies:
-                companies.append(player["company"])
+        
+        # Initialize leaderboard if it's empty
+        if not st.session_state.leaderboard:
+            st.session_state.leaderboard = leaderboard_manager.fetch_leaderboard()
+            
+        for entry in st.session_state.leaderboard:
+            if entry.get("company") and entry["company"] not in companies:
+                companies.append(entry["company"])
                 
         company_filter = st.selectbox("Company Filter", companies)
     
@@ -771,9 +831,9 @@ with tab2:
             df["time"] = df["time"].apply(lambda x: f"{x:.1f}s")
             df["efficiency"] = df["efficiency"].apply(lambda x: f"{x}%")
             
-            # Select and rename columns
-            display_df = df[["rank", "name", "company", "time", "efficiency", "score", "timestamp"]]
-            display_df.columns = ["Rank", "Player", "Company", "Time", "Efficiency", "Score", "Date"]
+            # Select and rename columns (including email)
+            display_df = df[["rank", "name", "email", "company", "time", "efficiency", "score", "timestamp"]]
+            display_df.columns = ["Rank", "Player", "Email", "Company", "Time", "Efficiency", "Score", "Date"]
             
             st.dataframe(display_df, hide_index=True, use_container_width=True)
         else:
@@ -815,6 +875,82 @@ with tab3:
 # Diagnostics Tab
 with tab4:
     add_diagnostics_tab()
+
+# Databricks Insights Tab
+with tab5:
+    st.title("Databricks Analytics Insights")
+    st.markdown("### Game Performance Analytics")
+    
+    # Fetch insights
+    insights = insights_fetcher.get_insights()
+    
+    # Show last updated
+    st.caption(f"Last updated: {insights['last_updated']}")
+    
+    # Game Statistics
+    stats = insights["statistics"]
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Games", stats["total_games"])
+    with col2:
+        st.metric("Avg Score", stats["avg_score"])
+    with col3:
+        st.metric("Avg Efficiency", f"{stats['avg_efficiency']}%")
+    with col4:
+        st.metric("Avg Time", f"{stats['avg_time']}s")
+    
+    # Best Routes
+    st.markdown("### 🥇 Best Routes by Difficulty")
+    
+    for route in insights["best_routes"]:
+        difficulty = "Easy" if route["difficulty"] == 1 else "Medium" if route["difficulty"] == 2 else "Hard"
+        st.markdown(f"**{difficulty}**: {route['route']} (Avg Score: {route['avg_score']:.1f})")
+    
+    # Common Violations
+    if insights["common_violations"]:
+        st.markdown("### ⚠️ Most Common Constraint Violations")
+        
+        for violation in insights["common_violations"]:
+            # Clean up constraint string
+            constraint = violation["constraint"].replace("'", "").replace("(", "").replace(")", "").split(", ")
+            if len(constraint) >= 2:
+                st.warning(f"{constraint[0]} → {constraint[1]} (Violated {violation['frequency']} times)")
+    
+    # Pro Tips
+    st.markdown("### 💡 Pro Tips")
+    st.info("**Tip 1:** Start by planning your route to minimize backtracking through closed roads.")
+    st.info("**Tip 2:** Prioritize package pickup at the Warehouse first to avoid constraint violations.")
+    st.info("**Tip 3:** For highest scores, try to match or beat the optimal route distance.")
+    
+    # Add a placeholder for interactive visualization
+    st.markdown("### 📊 Score Distribution")
+    
+    # Simulated chart data for placeholder
+    chart_data = {
+        "0-20": 2,
+        "21-40": 5,
+        "41-60": 12,
+        "61-80": 18,
+        "81-100": 15
+    }
+    
+    # Display as a bar chart
+    st.bar_chart(chart_data)
+    
+    # Add explanation of Databricks integration
+    with st.expander("How is Databricks powering these insights?"):
+        st.markdown("""
+        This integration demonstrates a modern data analytics pipeline:
+        
+        1. **Data Collection**: Game results are automatically exported to Azure Blob Storage
+        2. **Data Processing**: Azure Databricks reads and processes this data using Delta Lake
+        3. **Analytics**: Spark SQL queries analyze patterns and identify optimal strategies
+        4. **Insights Generation**: Results are processed into actionable insights
+        5. **Insights Delivery**: This tab fetches and displays the latest analytics
+        
+        The entire pipeline uses Azure's managed services for a scalable, production-ready architecture.
+        """)
 
 # Main function
 if __name__ == "__main__":
