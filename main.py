@@ -715,7 +715,7 @@ with tab1:
                 company = st.text_input("Company")
 
                 # Checkbox to start the game
-                data_consent = st.checkbox("I consent to store my information and can be used for future purposes.")
+                data_consent = st.checkbox("I consent to store my information.")
                 # Add privacy notice
                 st.caption("Game results will be used for analytics and leaderboard. Your data is stored securely.")
                 
