@@ -381,6 +381,8 @@ with tab1:
     
     # === LEFT COLUMN: GAME CONTROLS ===
     with control_col:
+
+
         # Only show controls during active gameplay
         if st.session_state.game and st.session_state.game.game_active:
             # st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -517,19 +519,16 @@ with tab1:
                 for constraint in violated_constraints:
                     st.markdown(f'<div class="constraint-warning">{constraint[0]} must be visited before {constraint[1]} - Violated!</div>', unsafe_allow_html=True)
 
-        if st.session_state.game or st.session_state.game_results:
-            data = st.session_state.game_results if st.session_state.game_results else st.session_state.game
-            results = st.session_state.game_results
-
-            if data:
-
-                # st.markdown("**Optimal Route:**")
-                # st.code(" → ".join(results['optimal_route']))
-
-                # Show optimal route segments
-                # st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
-
+        else:
                 st.markdown('<div style="margin-top: 100px;"></div>', unsafe_allow_html=True)
+                # Video file path
+                video_file = open("chariot.mp4", "rb")
+                video_bytes = video_file.read()
+
+                # Display video
+                st.video(video_bytes, format="video/mp4")
+
+
 
 
     # === MIDDLE COLUMN: MAP VISUALIZATION ===
@@ -714,7 +713,9 @@ with tab1:
                 name = st.text_input("Name*")
                 email = st.text_input("Email*")
                 company = st.text_input("Company")
-                
+
+                # Checkbox to start the game
+                data_consent = st.checkbox("I consent to store my information and can be used for future purposes.")
                 # Add privacy notice
                 st.caption("Game results will be used for analytics and leaderboard. Your data is stored securely.")
                 
@@ -734,34 +735,38 @@ with tab1:
                     num_closures = 2
                 else:
                     num_closures = 3
-                
+
                 submit = st.form_submit_button("Start Game", type="primary")
-                
+
                 if submit:
-                    if not name or not email:
-                        st.error("Please enter your name and email")
+                    if data_consent:
+                        if not name or not email:
+                            st.error("Please enter your name and email")
+                        else:
+                            # Create and start a new game
+                            st.session_state.game = LogisticsRushGame(
+                                LOCATIONS, ROAD_SEGMENTS, DISTANCES, difficulty=num_closures
+                            )
+                            game_info = st.session_state.game.start_game()
+
+                            # Store player info
+                            st.session_state.current_player = {
+                                "name": name,
+                                "email": email,
+                                "company": company
+                            }
+
+                            # Add player info to game for export
+                            st.session_state.game.player_info = {
+                                "player_name": name,
+                                "email": email,
+                                "company": company
+                            }
+
+                            st.rerun()
                     else:
-                        # Create and start a new game
-                        st.session_state.game = LogisticsRushGame(
-                            LOCATIONS, ROAD_SEGMENTS, DISTANCES, difficulty=num_closures
-                        )
-                        game_info = st.session_state.game.start_game()
-                        
-                        # Store player info
-                        st.session_state.current_player = {
-                            "name": name,
-                            "email": email,
-                            "company": company
-                        }
-                        
-                        # Add player info to game for export
-                        st.session_state.game.player_info = {
-                            "player_name": name,
-                            "email": email,
-                            "company": company
-                        }
-                        
-                        st.rerun()
+                        st.warning("⚠️ You must agree to the terms before playing the game.")
+
             
             st.markdown('</div>', unsafe_allow_html=True)
 
