@@ -29,6 +29,8 @@ st.set_page_config(page_title="Logistics Rush", page_icon="🚚", layout="wide")
 st.markdown(STYLES, unsafe_allow_html=True)
 
 # Initialize session state
+if 'results' not in st.session_state:
+    st.session_state.results = None
 if 'game' not in st.session_state:
     st.session_state.game = None
 if 'game_results' not in st.session_state:
@@ -235,8 +237,9 @@ def add_diagnostics_tab():
                                 st.markdown(f"**Move {i+1}:** {move.get('from', 'Start')} → {move.get('to', 'Unknown')} ({move.get('distance', 0)} cm){violation_info}")
             
             with route_col2:
+
                 st.markdown("**Optimal Route:**")
-                
+
                 if hasattr(data, 'optimal_route'):
                     # For active game
                     optimal_route = data.optimal_route
@@ -361,8 +364,12 @@ def add_diagnostics_tab():
         st.success("Diagnostic history cleared!")
         
 # Main UI
-st.markdown('<h1 class="main-title">🚚 Logistics Rush</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Interactive Supply Chain Challenge</p>', unsafe_allow_html=True)
+st.markdown("""
+    <div style="text-align: center;">
+        <h1 style="font-size: 30px; margin-bottom: 5px;">🚚 Logistics Rush</h1>
+        <p style="font-size: 18px; margin-top: 0px; margin-bottom: 10px;">Interactive Supply Chain Challenge</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # Create tabs
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Game", "Leaderboard", "Instructions", "Diagnostics", "Databricks Insights"])
@@ -376,7 +383,7 @@ with tab1:
     with control_col:
         # Only show controls during active gameplay
         if st.session_state.game and st.session_state.game.game_active:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
+            # st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Game Controls")
             
             # Current location
@@ -509,22 +516,25 @@ with tab1:
                 st.subheader("⚠️ Constraint Violations")
                 for constraint in violated_constraints:
                     st.markdown(f'<div class="constraint-warning">{constraint[0]} must be visited before {constraint[1]} - Violated!</div>', unsafe_allow_html=True)
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-        elif st.session_state.game_results:
-            # Show Play Again button in the controls column
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("Game Complete!")
-            
-            if st.button("Play Again", type="primary", use_container_width=True):
-                st.session_state.game_results = None
-                st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-    
+
+        if st.session_state.game or st.session_state.game_results:
+            data = st.session_state.game_results if st.session_state.game_results else st.session_state.game
+            results = st.session_state.game_results
+
+            if data:
+
+                # st.markdown("**Optimal Route:**")
+                # st.code(" → ".join(results['optimal_route']))
+
+                # Show optimal route segments
+                # st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
+
+                st.markdown('<div style="margin-top: 100px;"></div>', unsafe_allow_html=True)
+
+
     # === MIDDLE COLUMN: MAP VISUALIZATION ===
     with map_col:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        # st.markdown('<div class="card">', unsafe_allow_html=True)
         
         if st.session_state.game and st.session_state.game.game_active:
             # Show active game map
@@ -556,11 +566,11 @@ with tab1:
             map_fig = visualize_map(locations=LOCATIONS)
             st.plotly_chart(map_fig, use_container_width=True)
             
-        st.markdown('</div>', unsafe_allow_html=True)
+        # st.markdown('</div>', unsafe_allow_html=True)
         
         # Current route display below the map
         if st.session_state.game and st.session_state.game.game_active and st.session_state.game.current_route:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
+            # st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown("### Your Route")
             st.code(" → ".join(st.session_state.game.current_route))
             
@@ -574,16 +584,17 @@ with tab1:
             
             st.metric("Total Distance", f"{total_distance:.1f} cm")
             st.markdown('</div>', unsafe_allow_html=True)
-    
+
+
     # === RIGHT COLUMN: INFO PANEL OR REGISTRATION ===
     with info_col:
         if st.session_state.game and st.session_state.game.game_active:
             # Game Info Panel
-            st.markdown('<div class="card">', unsafe_allow_html=True)
+            # st.markdown('<div class="card">', unsafe_allow_html=True)
             
             game_status = st.session_state.game.get_game_status()
             
-            st.markdown('<div class="status-bar">', unsafe_allow_html=True)
+            #st.markdown('<div class="status-bar">', unsafe_allow_html=True)
             st.markdown(f"⏱ **Time:** {game_status['time']:.1f}s | 📦 **Packages:** {game_status['packages_delivered']}/{game_status['total_packages']} | 🌐 **Progress:** {game_status['progress']}%")
             st.markdown('</div>', unsafe_allow_html=True)
             
@@ -621,7 +632,7 @@ with tab1:
         
         # Results Panel for completed game
         elif st.session_state.game_results:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
+            #st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Challenge Complete!")
             
             results = st.session_state.game_results
@@ -635,10 +646,21 @@ with tab1:
             """, unsafe_allow_html=True)
             
             # Results metrics
-            st.metric("Time", f"{results['time']:.1f}s")
-            st.metric("Your Distance", f"{results['player_distance']:.1f} cm")
-            st.metric("Efficiency", f"{results['efficiency']}%")
-            st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
+            col1, col2= st.columns(2)
+
+            # Display Metrics with Icons & Styling
+            with col1:
+                st.metric(label="⏳ Time Taken", value=f"{results['time']:.1f}s")
+
+            with col2:
+                st.metric(label="📏 Your Distance", value=f"{results['player_distance']:.1f} cm")
+
+            col3, col4 = st.columns(2)
+            with col3:
+                st.metric(label="⚡ Efficiency", value=f"{results['efficiency']}%", delta_color="inverse")
+
+            with col4:
+                st.metric(label="🎯 Optimal Distance", value=f"{results['optimal_distance']:.1f} cm")
             
             # Display constraint violations if any occurred
             if results.get('active_constraints') and results.get('violated_constraints'):
@@ -666,55 +688,26 @@ with tab1:
             # Special message for finding a better route
             if results.get('found_better_route', False):
                 st.success("🏆 Congratulations! You found a more efficient route than the algorithm calculated!")
+
+            if st.session_state.game_results:
+                # Show Play Again button in the controls column
+                # st.markdown('<div class="card">', unsafe_allow_html=True)
+                # st.subheader("Game Complete!")
+
+                if st.button("Play Again", type="primary", use_container_width=True):
+                    st.session_state.game_results = None
+                    st.rerun()
                 
             st.markdown('</div>', unsafe_allow_html=True)
             
             # Routes comparison
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            route_tabs = st.tabs(["Your Route", "Optimal Route"])
-            
-            with route_tabs[0]:
-                st.markdown("**Your Route:**")
-                st.code(" → ".join(results['player_route']))
-                
-                # Show route segments
-                total_distance = 0
-                for i in range(len(results['player_route']) - 1):
-                    start = results['player_route'][i]
-                    end = results['player_route'][i+1]
-                    
-                    # We can get segment distance from the results
-                    segment_distance = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('distance', 0)
-                    total_distance += segment_distance
-                    
-                    # Check if this move violated a constraint
-                    violated_constraint = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get('violated_constraint')
-                    violation_info = ""
-                    if violated_constraint:
-                        violation_info = f" ⚠️ Violated constraint: {violated_constraint[0]} → {violated_constraint[1]}"
-                    
-                    st.markdown(f"**Step {i+1}:** {start} → {end} ({segment_distance} cm){violation_info}")
-            
-            with route_tabs[1]:
-                st.markdown("**Optimal Route:**")
-                st.code(" → ".join(results['optimal_route']))
-                
-                # Show optimal route segments
-                st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
-                
-                # Show package operations if available
-                if 'optimal_package_operations' in results:
-                    st.markdown("**Optimal Package Operations:**")
-                    for op in results['optimal_package_operations']:
-                        location, action, pkg_id = op
-                        action_icon = "📦➡️" if action == "pickup" else "📦✅"
-                        st.markdown(f"- {action_icon} {action.capitalize()} Package #{pkg_id} at {location}")
-            
+            #st.markdown('<div class="card">', unsafe_allow_html=True)
+
             st.markdown('</div>', unsafe_allow_html=True)
         
         # Player Registration - kept on right side (original location)
         else:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
+            # st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Player Registration")
             
             with st.form("registration_form"):
@@ -771,6 +764,61 @@ with tab1:
                         st.rerun()
             
             st.markdown('</div>', unsafe_allow_html=True)
+
+    your_route, optimal_route = st.columns([1, 1])
+
+    with your_route:
+        if 'game_results' in st.session_state:
+            results = st.session_state.game_results
+            if results:
+                st.markdown("**Your Route:**")
+            if results and isinstance(results, dict) and 'player_route' in results and results['player_route']:
+                st.code(" → ".join(results['player_route']))
+
+            # Show route segments
+            total_distance = 0
+            # Check if 'results' is not None and 'player_route' exists and is not empty
+            if results and isinstance(results, dict) and 'player_route' in results and results['player_route']:
+                # Iterate over the player_route and perform your operations
+                for i in range(len(results['player_route']) - 1):
+                    start = results['player_route'][i]
+                    end = results['player_route'][i + 1]
+
+                    # We can get segment distance from the results
+                    segment_distance = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get(
+                        'distance', 0)
+                    total_distance += segment_distance
+
+                    # Check if this move violated a constraint
+                    violated_constraint = results.get('enhanced_diagnostics', {}).get('move_history', [])[i].get(
+                        'violated_constraint')
+                    violation_info = ""
+                    if violated_constraint:
+                        violation_info = f" ⚠️ Violated constraint: {violated_constraint[0]} → {violated_constraint[1]}"
+
+                    st.markdown(f"**Step {i + 1}:** {start} → {end} ({segment_distance} cm){violation_info}")
+
+
+
+    with optimal_route:
+        if 'game_results' in st.session_state:
+            results = st.session_state.game_results
+            if results:
+                st.markdown("**Optimal Route:**")
+                # Check if 'results' is not None and 'optimal_route' exists and is not None
+                if results and isinstance(results, dict) and 'optimal_route' in results and results['optimal_route']:
+                    st.code(" → ".join(results['optimal_route']))
+
+                # Show optimal route segments
+                # st.metric("Optimal Distance", f"{results['optimal_distance']:.1f} cm")
+                    # Show package operations if available
+                    if results and isinstance(results, dict) and 'optimal_package_operations' in results:
+                        for op in results['optimal_package_operations']:
+                            location, action, pkg_id = op
+                            action_icon = "📦➡️" if action == "pickup" else "📦✅"
+                            action_text = action.capitalize().replace("Delivery", "Deliver")
+                            st.markdown(f"- {action_icon} {action_text} Package #{pkg_id} at {location}")
+
 
 # Leaderboard Tab
 with tab2:
