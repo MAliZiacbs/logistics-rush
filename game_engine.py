@@ -1,239 +1,485 @@
-import streamlit as st
-import numpy as np
 import time
+import random
+import json
+from logistics_graph import LogisticsGraph
+from package_manager import PackageManager
+from constraints_manager import ConstraintsManager
+from route_optimizer import RouteOptimizer
+from config import DIFFICULTY_CONSTRAINTS, CONSTRAINT_VIOLATION_PENALTY
+import data_exporter
 
-from config import LOCATIONS, SCORING_WEIGHTS, check_constraints
-from routing import solve_tsp, get_distance, calculate_route_distance
-from feature_road_closures import generate_road_closures, is_road_closed
-from feature_packages import generate_packages
-from data_management import save_player_data
-
-def start_new_game():
-    """Start a new game with all features combined"""
-    st.session_state.game_active = True
-    st.session_state.start_time = time.time()
-    
-    st.session_state.current_package = None
-    st.session_state.delivered_packages = []
-    st.session_state.current_route = []
-    st.session_state.optimal_route = None
-    st.session_state.optimal_path = None
-    
-    locations_to_visit = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
-    start_location = "Factory"
-
-    st.session_state.constraints = {
-        "Factory": "Must visit before Shop",
-        "Shop": "Must visit after Factory",
-        "DHL Hub": "Must visit before Residence",
-        "Residence": "Must visit after DHL Hub"
-    }
-    
-    st.session_state.closed_roads = generate_road_closures(num_closures=2)
-    st.session_state.packages = generate_packages(num_packages=3)
-    st.session_state.total_packages = len(st.session_state.packages)
-
-    # Try to find an optimal route
-    optimal_route, optimal_path, optimal_distance = solve_tsp(start_location, locations_to_visit)
-    if optimal_route is None:
-        st.warning("Optimal route calculation failed. Using fallback route via Central Hub.")
-        # Fallback route ensuring all locations are visited
-        fallback_route = [
-            {"location": start_location, "action": "visit", "package_id": None},
-            {"location": "Central Hub", "action": "visit", "package_id": None}
-        ]
-        for loc in locations_to_visit:
-            if loc != start_location:
-                fallback_route.append({"location": loc, "action": "visit", "package_id": None})
-        fallback_route.append({"location": start_location, "action": "visit", "package_id": None})
-        optimal_path, optimal_distance = calculate_route_distance(fallback_route)
-        optimal_route = fallback_route
-
-    st.session_state.current_route = [start_location]
-    st.session_state.optimal_route = optimal_route
-    st.session_state.optimal_path = optimal_path if optimal_path else [start_location]
-
-def process_location_checkin(location):
-    """Process a player checking in at a location"""
-    if not st.session_state.game_active:
-        st.warning("Please start a new game first!")
-        return None
+class LogisticsRushGame:
+    def __init__(self, locations, road_segments, distances, difficulty=1):
+        """Initialize a new game with the given difficulty"""
+        self.difficulty = min(difficulty, 3)  # Cap at 3
+        self.start_location = "Warehouse"
         
-    if len(st.session_state.current_route) > 0:
-        current_location = st.session_state.current_route[-1]
-        if is_road_closed(current_location, location):
-            st.error(f"❌ Road from {current_location} to {location} is closed! Find another route.")
-            return None
-
-    temp_route = st.session_state.current_route + [location]
-    if not check_constraints(temp_route):
-        if location == "Shop" and "Factory" not in st.session_state.current_route:
-            st.error("You must visit Factory before Shop!")
-        elif location == "Residence" and "DHL Hub" not in st.session_state.current_route:
-            st.error("You must visit DHL Hub before Residence!")
-        return None
-            
-    if st.session_state.current_package and st.session_state.current_package["delivery"] == location:
-        st.session_state.current_package["status"] = "delivered"
-        st.session_state.delivered_packages.append(st.session_state.current_package)
-        st.session_state.current_package = None
-        st.success(f"📦 Package delivered successfully to {location}!")
+        # Create the graph
+        self.graph = LogisticsGraph(locations, road_segments, distances)
         
-    available_pickups = [p for p in st.session_state.packages 
-                         if p["pickup"] == location and p["status"] == "waiting"]
-    if available_pickups and not st.session_state.current_package:
-        st.info(f"📦 There are {len(available_pickups)} packages available for pickup at {location}!")
-
-    st.session_state.current_route.append(location)
-    
-    main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
-    all_locations_visited = all(loc in st.session_state.current_route for loc in main_locations)
-    all_packages_delivered = len(st.session_state.delivered_packages) == st.session_state.total_packages
-    
-    if all_locations_visited and all_packages_delivered:
-        if st.session_state.current_route[0] != st.session_state.current_route[-1]:
-            if not is_road_closed(st.session_state.current_route[-1], st.session_state.current_route[0]):
-                st.session_state.current_route.append(st.session_state.current_route[0])
-        return end_game()
-            
-    return None
-
-def pickup_package(package):
-    """Pick up a package at the current location"""
-    if not st.session_state.game_active or not package:
-        return
-    package["status"] = "picked_up"
-    st.session_state.current_package = package
-    st.success(f"Package #{package['id']} picked up! Deliver to {package['delivery']}.")
-
-def get_game_status():
-    """Get current game status including time, progress, etc."""
-    if not st.session_state.game_active:
-        return None
+        # Create the package manager
+        self.package_manager = PackageManager()
         
-    game_time = time.time() - st.session_state.start_time
-    loc_visited = len(set([loc for loc in st.session_state.current_route if loc != "Central Hub"]))
-    total_loc = len([loc for loc in LOCATIONS.keys() if loc != "Central Hub"])
-    loc_progress = min(100, int((loc_visited / total_loc) * 100))
-    pkg_progress = min(100, int((len(st.session_state.delivered_packages) / max(1, st.session_state.total_packages)) * 100))
-    combined_progress = (loc_progress + pkg_progress) // 2
-    return {
-        "time": game_time,
-        "location_progress": loc_progress,
-        "package_progress": pkg_progress,
-        "combined_progress": combined_progress,
-        "progress_text": f"Overall Progress: {combined_progress}%"
-    }
-
-def end_game():
-    """End the game and calculate results"""
-    if not st.session_state.game_active:
-        return None
-
-    game_time = time.time() - st.session_state.start_time
-
-    _, optimal_distance = calculate_route_distance(st.session_state.optimal_route)
-    if optimal_distance == float('inf'):
-        optimal_distance = 0  # Fallback if no valid optimal route
-    player_distance = 0
-    for i in range(len(st.session_state.current_route) - 1):
-        segment_distance = get_distance(st.session_state.current_route[i], st.session_state.current_route[i+1])
-        if segment_distance != float('inf'):
-            player_distance += segment_distance
-
-    efficiency = min(100, int((optimal_distance / player_distance) * 100)) if player_distance > 0 and optimal_distance > 0 else 0
-    weights = SCORING_WEIGHTS["Logistics Challenge"]
-    time_factor = max(0, 100 - (game_time / 3))
-    constraints_followed = check_constraints(st.session_state.current_route)
-    constraint_factor = 100 if constraints_followed else 0
-    delivery_percent = min(100, int((len(st.session_state.delivered_packages) / max(1, st.session_state.total_packages)) * 100))
+        # Get constraints based on difficulty
+        active_constraints = DIFFICULTY_CONSTRAINTS.get(self.difficulty, [])
+        
+        # Create the constraints manager with active constraints
+        self.constraints = ConstraintsManager(active_constraints)
+        
+        # Initialize game state
+        self.game_active = False
+        self.current_location = None
+        self.current_route = []
+        self.start_time = None
+        self.closed_roads = []
+        self.optimal_route = None
+        self.optimal_distance = 0
+        self.optimal_package_operations = []
+        
+        # Enhanced diagnostics
+        self.move_history = []
+        self.decision_logs = []
+        self.constraint_violations = []
+        
+        # Track constraint violations for scoring
+        self.violated_constraints = set()
     
-    score_components = {
-        "efficiency": efficiency * weights["efficiency"],
-        "delivery": delivery_percent * weights["delivery"],
-        "constraints": constraint_factor * weights["constraints"],
-        "time": time_factor * weights["time"]
-    }
-    player_score = int(sum(score_components.values()))
-    player_score = max(0, min(100, player_score))
-
-    # Calculate optimal score (assuming fastest time and all deliveries)
-    optimal_time = optimal_distance * 2  # Arbitrary: 2 seconds per unit distance
-    optimal_time_factor = max(0, 100 - (optimal_time / 3))
-    optimal_score_components = {
-        "efficiency": 100 * weights["efficiency"],
-        "delivery": 100 * weights["delivery"],
-        "constraints": 100 * weights["constraints"],
-        "time": optimal_time_factor * weights["time"]
-    }
-    optimal_score = int(sum(optimal_score_components.values()))
-    optimal_score = max(0, min(100, optimal_score))
-    
-    improvement_percent = ((optimal_score - player_score) / player_score * 100) if player_score > 0 else 0
-
-    st.session_state.completed_routes = {
-        "player": st.session_state.current_route.copy(),
-        "optimal": st.session_state.optimal_path.copy() if st.session_state.optimal_path else []
-    }
-    
-    if st.session_state.current_player:
-        result_data = {
-            "time": game_time,
-            "efficiency": efficiency,
-            "delivery": delivery_percent,
-            "constraints": constraint_factor,
-            "score": player_score,
-            "route": st.session_state.current_route.copy()
+    def start_game(self):
+        """Start a new game with the current difficulty"""
+        # Reset game state
+        self.game_active = True
+        self.current_location = self.start_location
+        self.current_route = [self.start_location]
+        self.start_time = time.time()
+        self.violated_constraints = set()
+        
+        # Generate packages
+        self._generate_packages()
+        
+        # Close roads based on difficulty
+        self.closed_roads = self._generate_road_closures()
+        for road in self.closed_roads:
+            self.graph.close_road(road[0], road[1])
+        
+        # Calculate optimal route
+        self._calculate_optimal_route()
+        
+        # Log initial game state
+        self.decision_logs.append({
+            "timestamp": time.time(),
+            "action": "game_start",
+            "location": self.current_location,
+            "available_moves": self.get_available_moves(),
+            "packages": self.package_manager.get_package_info(),
+            "closed_roads": self.closed_roads,
+            "active_constraints": self.constraints.get_active_constraints()
+        })
+        
+        return {
+            "started": True,
+            "current_location": self.current_location,
+            "available_moves": self.get_available_moves(),
+            "packages": self.package_manager.get_package_info(),
+            "closed_roads": self.closed_roads,
+            "active_constraints": self.constraints.get_active_constraints()
         }
-        save_player_data(result_data)
     
-    st.session_state.game_active = False
-
-    results = {
-        "time": game_time,
-        "efficiency": efficiency,
-        "score": player_score,
-        "optimal_distance": optimal_distance,
-        "player_distance": player_distance,
-        "score_components": score_components,
-        "delivery_percent": delivery_percent,
-        "constraints_followed": constraints_followed,
-        "optimal_score": optimal_score,
-        "improvement_percent": improvement_percent
-    }
-    st.session_state.game_results = results
-    return results
-
-def get_completion_summary():
-    """Get a summary of completion status for all game aspects"""
-    if not st.session_state.game_active:
-        return None
+    def move_to_location(self, location):
+        """Move to a directly connected location"""
+        if not self.game_active:
+            return {"success": False, "message": "Game not active"}
         
-    main_locations = [loc for loc in LOCATIONS.keys() if loc != "Central Hub"]
-    visited_locations = [loc for loc in main_locations if loc in st.session_state.current_route]
-    remaining_locations = [loc for loc in main_locations if loc not in st.session_state.current_route]
-    delivered_packages = len(st.session_state.delivered_packages)
-    total_packages = st.session_state.total_packages
-    remaining_packages = total_packages - delivered_packages
-    constraints_followed = check_constraints(st.session_state.current_route)
-    constraint_issues = []
-    if not constraints_followed:
-        if "Factory" in st.session_state.current_route and "Shop" in st.session_state.current_route:
-            f_idx = st.session_state.current_route.index("Factory")
-            s_idx = st.session_state.current_route.index("Shop")
-            if f_idx > s_idx:
-                constraint_issues.append("Shop was visited before Factory")
-        if "DHL Hub" in st.session_state.current_route and "Residence" in st.session_state.current_route:
-            d_idx = st.session_state.current_route.index("DHL Hub")
-            r_idx = st.session_state.current_route.index("Residence")
-            if d_idx > r_idx:
-                constraint_issues.append("Residence was visited before DHL Hub")
-    return {
-        "visited_locations": visited_locations,
-        "remaining_locations": remaining_locations,
-        "delivered_packages": delivered_packages,
-        "total_packages": total_packages,
-        "remaining_packages": remaining_packages,
-        "constraints_followed": constraints_followed,
-        "constraint_issues": constraint_issues
-    }
+        # Log decision point
+        decision_point = {
+            "timestamp": time.time(),
+            "action": "move_attempt",
+            "from": self.current_location,
+            "to": location,
+            "current_route": self.current_route.copy()
+        }
+        
+        # Check if the location is directly connected
+        if not self.graph.is_directly_connected(self.current_location, location):
+            decision_point["result"] = "failed"
+            decision_point["reason"] = "not_directly_connected"
+            self.decision_logs.append(decision_point)
+            return {
+                "success": False, 
+                "message": f"Cannot move directly from {self.current_location} to {location}. Choose a connected location."
+            }
+        
+        # Get the distance for this move
+        distance = self.graph.get_edge_weight(self.current_location, location)
+        decision_point["distance"] = distance
+        
+        # Check if this move would violate constraints
+        temp_route = self.current_route + [location]
+        valid, message, violated_constraint = self.constraints.validate_route(temp_route)
+        
+        decision_point["constraints_check"] = {
+            "valid": valid,
+            "message": message,
+            "violated_constraint": violated_constraint
+        }
+        
+        # Set up warning message and track violation if needed
+        warning_message = ""
+        
+        if not valid:
+            self.constraint_violations.append({
+                "timestamp": time.time(),
+                "current_route": self.current_route.copy(),
+                "attempted_location": location,
+                "violation_message": message,
+                "violated_constraint": violated_constraint
+            })
+            
+            # Record the violation in the constraints manager
+            self.constraints.record_violation(self.current_route, location, violated_constraint)
+            
+            # Add to set of violated constraints for scoring
+            if violated_constraint:
+                self.violated_constraints.add(violated_constraint)
+            
+            decision_point["result"] = "constraint_violation"
+            
+            # Set warning message
+            warning_message = message
+        
+        # Move is executing regardless of constraints, update route and current location
+        self.current_route.append(location)
+        self.current_location = location
+        
+        decision_point["result"] = "success"
+        self.decision_logs.append(decision_point)
+        
+        # Record this move in history
+        self.move_history.append({
+            "timestamp": time.time(),
+            "from": self.current_route[-2],
+            "to": location,
+            "distance": distance,
+            "violated_constraint": None if valid else violated_constraint
+        })
+        
+        # Check for automatic package delivery
+        result = {"success": True, "message": f"Moved to {location}"}
+        if warning_message:
+            result["message"] += f" WARNING: {warning_message}"
+            result["constraint_violated"] = True
+            result["violated_constraint"] = violated_constraint
+        
+        if self.package_manager.carrying and self.package_manager.carrying.delivery == location:
+            success, deliver_msg = self.package_manager.deliver(location)
+            if success:
+                result["message"] += f". {deliver_msg}"
+        
+        # Check if game is complete
+        if self._check_game_completion():
+            game_results = self.end_game()
+            result["game_completed"] = True
+            result["results"] = game_results
+            
+        # Return available moves for the next step
+        result["available_moves"] = self.get_available_moves()
+        result["packages_here"] = self.package_manager.get_available_pickups(location)
+        
+        return result
+    
+    def pickup_package(self, package_id):
+        """Pick up a package at the current location"""
+        if not self.game_active:
+            return {"success": False, "message": "Game not active"}
+        
+        # Log decision
+        decision_point = {
+            "timestamp": time.time(),
+            "action": "pickup_attempt",
+            "location": self.current_location,
+            "package_id": package_id
+        }
+        
+        success, message = self.package_manager.pickup(package_id, self.current_location)
+        
+        decision_point["result"] = "success" if success else "failed"
+        decision_point["message"] = message
+        self.decision_logs.append(decision_point)
+        
+        result = {"success": success, "message": message}
+        
+        # Return available moves for the next step
+        result["available_moves"] = self.get_available_moves()
+        
+        return result
+    
+    def deliver_package(self):
+        """Deliver the currently carried package"""
+        if not self.game_active:
+            return {"success": False, "message": "Game not active"}
+        
+        # Log decision
+        decision_point = {
+            "timestamp": time.time(),
+            "action": "delivery_attempt",
+            "location": self.current_location
+        }
+        
+        if self.package_manager.carrying:
+            decision_point["package_id"] = self.package_manager.carrying.id
+            decision_point["package_destination"] = self.package_manager.carrying.delivery
+            
+        success, message = self.package_manager.deliver(self.current_location)
+        
+        decision_point["result"] = "success" if success else "failed"
+        decision_point["message"] = message
+        self.decision_logs.append(decision_point)
+        
+        result = {"success": success, "message": message}
+        
+        # Check if game is complete
+        if success and self._check_game_completion():
+            game_results = self.end_game()
+            result["game_completed"] = True
+            result["results"] = game_results
+            
+        # Return available moves for the next step
+        result["available_moves"] = self.get_available_moves()
+        
+        return result
+    
+    def get_available_moves(self):
+        """Get all locations that can be moved to from the current location"""
+        if not self.game_active or not self.current_location:
+            return []
+            
+        # Get all connected locations
+        connected = self.graph.get_connected_locations(self.current_location)
+        
+        # All moves are available regardless of constraints
+        valid_moves = []
+        for location in connected:
+            # Get the distance for this move
+            distance = self.graph.get_edge_weight(self.current_location, location)
+            
+            # Check if this would violate a constraint (for warning purposes only)
+            temp_route = self.current_route + [location]
+            valid, message, violated_constraint = self.constraints.validate_route(temp_route)
+            
+            valid_moves.append({
+                "location": location,
+                "distance": distance,
+                "has_packages": len(self.package_manager.get_available_pickups(location)) > 0,
+                "violates_constraint": not valid,
+                "constraint_message": message if not valid else None,
+                "violated_constraint": violated_constraint
+            })
+        
+        return valid_moves
+    
+    def end_game(self):
+        """End the game and calculate results"""
+        if not self.game_active:
+            return {"success": False, "message": "Game not active"}
+            
+        self.game_active = False
+        game_time = time.time() - self.start_time
+        
+        # Calculate player route distance - direct calculation since we now have explicit movements
+        player_distance = self.graph.calculate_route_distance(self.current_route)
+        
+        # Calculate efficiency
+        if player_distance <= self.optimal_distance:
+            # Player found a better route
+            efficiency = 100
+            better_route = True
+        else:
+            # Normal efficiency calculation
+            efficiency = min(100, int((self.optimal_distance / player_distance) * 100))
+            better_route = False
+        
+        # Calculate score components
+        weights = {"efficiency": 0.4, "delivery": 0.3, "constraints": 0.2, "time": 0.1}
+        
+        delivery_score = 100  # All packages must be delivered to complete
+        
+        # Apply constraint penalties if constraints were violated
+        total_possible_constraints = len(DIFFICULTY_CONSTRAINTS.get(self.difficulty, []))
+        if total_possible_constraints > 0:
+            # Calculate percentage of constraints violated
+            if len(self.violated_constraints) > 0:
+                constraints_score = max(0, 100 - (len(self.violated_constraints) * CONSTRAINT_VIOLATION_PENALTY))
+            else:
+                constraints_score = 100
+        else:
+            # No constraints in this difficulty level
+            constraints_score = 100
+        
+        # Time factor calculation (based on average expected time)
+        expected_time = (len(self.package_manager.packages) * 15) + (len(self.current_route) * 5)
+        time_factor = max(0, 100 - ((game_time / expected_time) * 50))  # 50% penalty for 2x expected time
+        
+        # Final score calculation
+        score = (
+            efficiency * weights["efficiency"] +
+            delivery_score * weights["delivery"] +
+            constraints_score * weights["constraints"] +
+            time_factor * weights["time"]
+        )
+        
+        score = min(100, max(0, int(score)))
+        
+        # Generate detailed diagnostics
+        diagnostics = {
+            "move_history": self.move_history,
+            "decision_logs": self.decision_logs,
+            "constraint_violations": self.constraint_violations,
+            "graph_state": self.graph.get_graph_state(),
+            "optimal_route_calculation": {
+                "route": self.optimal_route,
+                "distance": self.optimal_distance,
+                "operations": self.optimal_package_operations
+            },
+            "violated_constraints": list(self.violated_constraints),
+            "active_constraints": self.constraints.get_active_constraints()
+        }
+        
+        results = {
+            "time": game_time,
+            "player_route": self.current_route,
+            "player_distance": player_distance,
+            "optimal_route": self.optimal_route,
+            "optimal_distance": self.optimal_distance,
+            "efficiency": efficiency,
+            "found_better_route": better_route,
+            "score": score,
+            "difficulty": self.difficulty,
+            "closed_roads": self.closed_roads,
+            "packages": self.package_manager.get_package_info(),
+            "optimal_package_operations": self.optimal_package_operations,
+            "violated_constraints": list(self.violated_constraints),
+            "constraints_score": constraints_score,
+            "active_constraints": self.constraints.get_active_constraints(),
+            "enhanced_diagnostics": diagnostics
+        }
+        
+        # Add player info to results if available
+        if hasattr(self, 'player_info'):
+            results.update(self.player_info)
+        else:
+            results['player_name'] = 'anonymous'
+        
+        # Export to Azure
+        data_exporter.export_game_results(results)
+        
+        return results
+    
+    def get_game_status(self):
+        """Get current game status"""
+        if not self.game_active:
+            return {"active": False}
+            
+        game_time = time.time() - self.start_time
+        
+        # Calculate progress
+        delivered = len(self.package_manager.get_delivered_packages())
+        total_packages = len(self.package_manager.packages)
+        unique_locations = len(set(self.current_route))
+        total_locations = len(self.graph.locations)
+        
+        # Location progress and package progress
+        loc_progress = min(100, int((unique_locations / total_locations) * 100))
+        pkg_progress = min(100, int((delivered / total_packages) * 100))
+        
+        # Combined progress
+        combined_progress = (loc_progress + pkg_progress) // 2
+        
+        return {
+            "active": True,
+            "time": game_time,
+            "current_location": self.current_location,
+            "locations_visited": unique_locations,
+            "total_locations": total_locations,
+            "packages_delivered": delivered,
+            "total_packages": total_packages,
+            "carrying_package": self.package_manager.carrying.id if self.package_manager.carrying else None,
+            "progress": combined_progress,
+            "available_moves": self.get_available_moves(),
+            "violated_constraints": list(self.violated_constraints),
+            "active_constraints": self.constraints.get_active_constraints()
+        }
+    
+    def _generate_packages(self):
+        """Generate the standard packages for the game"""
+        # Always include these critical packages for constraints
+        self.package_manager.add_package(1, "Warehouse", "Shop")
+        self.package_manager.add_package(2, "Distribution Center", "Home")
+        
+        # Add one more random package
+        options = [
+            ("Shop", "Distribution Center"),
+            ("Distribution Center", "Shop"),
+            ("Warehouse", "Home"),
+            ("Home", "Warehouse")
+        ]
+        pickup, delivery = random.choice(options)
+        self.package_manager.add_package(3, pickup, delivery)
+    
+    def _generate_road_closures(self):
+        """Generate road closures based on difficulty"""
+        # Number of closures based on difficulty
+        num_closures = self.difficulty
+        
+        # Predefined safe closures that ensure the game remains solvable
+        safe_closures = {
+            1: [
+                [("Warehouse", "Shop")],
+                [("Warehouse", "Home")],
+                [("Shop", "Home")]
+            ],
+            2: [
+                [("Warehouse", "Shop"), ("Distribution Center", "Home")],
+                [("Warehouse", "Home"), ("Distribution Center", "Shop")],
+                [("Shop", "Home"), ("Warehouse", "Distribution Center")]
+            ],
+            3: [
+                [("Warehouse", "Shop"), ("Shop", "Home"), ("Warehouse", "Home")],
+                [("Distribution Center", "Shop"), ("Shop", "Home"), ("Distribution Center", "Home")],
+                [("Warehouse", "Shop"), ("Warehouse", "Home"), ("Distribution Center", "Home")]
+            ]
+        }
+        
+        if num_closures in safe_closures:
+            # Randomly select one of the predefined closure sets for this difficulty
+            return random.choice(safe_closures[num_closures])
+        
+        # Fallback to the simplest closure if something goes wrong
+        return [("Warehouse", "Shop")]
+    
+    def _calculate_optimal_route(self):
+        """Calculate the optimal route that properly accounts for package deliveries"""
+        optimizer = RouteOptimizer(self.graph, self.constraints)
+        
+        # Get a list of all locations
+        locations = list(self.graph.locations.keys())
+        
+        # Find the optimal route with package operations
+        route, distance, operations = optimizer.find_optimal_route(
+            self.start_location, 
+            locations, 
+            self.package_manager.packages
+        )
+        
+        # Store the results
+        self.optimal_route = route
+        self.optimal_distance = distance
+        self.optimal_package_operations = operations
+    
+    def _check_game_completion(self):
+        """Check if the game is complete"""
+        # Game is complete when:
+        # 1. All locations have been visited
+        # 2. All packages have been delivered
+        all_locations_visited = set(self.graph.locations.keys()).issubset(set(self.current_route))
+        all_packages_delivered = self.package_manager.all_packages_delivered()
+        
+        return all_locations_visited and all_packages_delivered

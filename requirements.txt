@@ -7,3 +7,4 @@ plotly
 qrcode
 pillow
 openpyxl>=3.0.0
+azure-storage-blob==12.11.0

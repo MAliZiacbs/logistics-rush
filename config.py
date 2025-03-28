@@ -1,51 +1,52 @@
 # config.py
 
-# Locations with their visual properties
+# Locations with their visual properties (Central Hub removed)
 LOCATIONS = {
-    "Factory": {"position": (100, 100), "color": "#f87171", "emoji": "🏭"},
-    "DHL Hub": {"position": (700, 100), "color": "#fbbf24", "emoji": "🚚"},
+    "Warehouse": {"position": (100, 100), "color": "#f87171", "emoji": "🏭"},
+    "Distribution Center": {"position": (700, 100), "color": "#fbbf24", "emoji": "🚚"},
     "Shop": {"position": (700, 300), "color": "#60a5fa", "emoji": "🏪"},
-    "Residence": {"position": (100, 300), "color": "#a78bfa", "emoji": "🏠"},
-    "Central Hub": {"position": (400, 200), "color": "#374151", "emoji": "🔄"}
+    "Home": {"position": (100, 300), "color": "#4ade80", "emoji": "🏠"},  # Changed to green
 }
 
-# Define all possible road segments
+# Define all possible road segments (no Central Hub)
 ROAD_SEGMENTS = [
-    ("Factory", "DHL Hub"),
-    ("Factory", "Shop"),
-    ("Factory", "Residence"),
-    ("Factory", "Central Hub"),
-    ("DHL Hub", "Shop"),
-    ("DHL Hub", "Residence"),
-    ("DHL Hub", "Central Hub"),
-    ("Shop", "Residence"),
-    ("Shop", "Central Hub"),
-    ("Residence", "Central Hub"),
+    ("Warehouse", "Distribution Center"),
+    ("Warehouse", "Shop"),
+    ("Warehouse", "Home"),
+    ("Distribution Center", "Shop"),
+    ("Distribution Center", "Home"),
+    ("Shop", "Home"),
 ]
 
-# Simplified graph of distances between locations
+# Updated distances based on real measurements in centimeters
 DISTANCES = {
-    ("Factory", "DHL Hub"): 3.0,
-    ("Factory", "Shop"): 4.5,
-    ("Factory", "Residence"): 2.0,
-    ("Factory", "Central Hub"): 2.0,
-    ("DHL Hub", "Shop"): 2.0,
-    ("DHL Hub", "Residence"): 4.5,
-    ("DHL Hub", "Central Hub"): 2.0,
-    ("Shop", "Residence"): 3.0,
-    ("Shop", "Central Hub"): 2.0,
-    ("Residence", "Central Hub"): 2.0,
+    ("Warehouse", "Distribution Center"): 302,
+    ("Warehouse", "Shop"): 354,
+    ("Warehouse", "Home"): 183,
+    ("Distribution Center", "Shop"): 183,
+    ("Distribution Center", "Home"): 354,
+    ("Shop", "Home"): 302,
 }
 
-# Game modes with clear descriptions - now just a single, combined mode
+# Constraints based on difficulty levels
+DIFFICULTY_CONSTRAINTS = {
+    1: [],  # Easy: No constraints
+    2: [("Warehouse", "Shop")],  # Medium: One constraint
+    3: [("Warehouse", "Shop"), ("Distribution Center", "Home")]  # Hard: Both constraints
+}
+
+# Penalty for constraint violations (percentage of constraints score component)
+CONSTRAINT_VIOLATION_PENALTY = 25  # 25% penalty per violation
+
+# Game modes with clear descriptions - unchanged
 GAME_MODES = {
     "Logistics Challenge": {
         "description": "Master all logistics challenges in one comprehensive experience",
         "instructions": """
-        1. Start at the Factory
+        1. Start at the Warehouse
         2. Navigate through the network with random road closures
         3. Pick up and deliver packages along your route
-        4. Follow sequence constraints (Factory before Shop, DHL Hub before Residence)
+        4. Follow sequence constraints based on difficulty level
         5. Complete your mission as efficiently as possible
         
         Your score depends on efficiency (40%), successful deliveries (30%), 
@@ -54,7 +55,7 @@ GAME_MODES = {
     }
 }
 
-# Scoring weights for the unified game mode
+# Scoring weights for the unified game mode - unchanged
 SCORING_WEIGHTS = {
     "Logistics Challenge": {
         "efficiency": 0.4,
@@ -64,7 +65,7 @@ SCORING_WEIGHTS = {
     }
 }
 
-# CSS styles for the application (consolidated version)
+# CSS styles for the application (unchanged for now, though Central Hub references could be removed if needed)
 STYLES = """
 <style>
     .main-title {
@@ -174,27 +175,12 @@ STYLES = """
         font-weight: bold;
         color: #1a56db;
     }
+    .constraint-warning {
+        background-color: #FECACA;
+        border-left: 4px solid #DC2626;
+        padding: 10px;
+        margin-bottom: 12px;
+        border-radius: 4px;
+    }
 </style>
 """
-
-# Centralized constraint checking function
-def check_constraints(route):
-    """
-    Check if a route follows the game's sequence constraints.
-    Returns True if constraints are met, False otherwise.
-    """
-    # Factory must come before Shop
-    if "Factory" in route and "Shop" in route:
-        f_idx = route.index("Factory")
-        s_idx = route.index("Shop")
-        if f_idx > s_idx:
-            return False
-            
-    # DHL Hub must come before Residence
-    if "DHL Hub" in route and "Residence" in route:
-        d_idx = route.index("DHL Hub")
-        r_idx = route.index("Residence")
-        if d_idx > r_idx:
-            return False
-            
-    return True
